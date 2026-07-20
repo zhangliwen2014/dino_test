@@ -42,8 +42,9 @@ def test_validate_image_size_bad_raises_with_fix_hint():
         validate_image_size(220, 16)  # 224 恰为 14*16，改用 220
 
 
-def test_load_config_defaults(tmp_path):
-    cfg = load_config(tmp_path / "nonexistent.yaml")  # 文件不存在 → 全默认
+def test_load_config_defaults(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # 默认路径 config/default.yaml 不存在 → 全默认
+    cfg = load_config(None)
     assert cfg.backbone == "dinov2_vits14"
     assert cfg.image_size == 224
     assert cfg.coreset_sampling_ratio == 0.1
@@ -51,6 +52,11 @@ def test_load_config_defaults(tmp_path):
     assert cfg.bank_cap_ratio == 1.5
     assert cfg.defect_topk == 10
     assert cfg.threshold_sigma == 3.0
+
+
+def test_load_config_explicit_missing_path_raises(tmp_path):
+    with pytest.raises(DinoError, match="不存在"):
+        load_config(tmp_path / "nonexistent.yaml")
 
 
 def test_load_config_from_yaml(tmp_path):
@@ -74,3 +80,61 @@ def test_alias_table_complete():
         "dinov3_vits16", "dinov3_vitb16", "dinov3_vitl16",
     }
     assert set(BACKBONE_ALIASES) == expected
+
+
+def test_load_config_rejects_unknown_key_colliding_with_property(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("backbone_spec: x\n", encoding="utf-8")  # 撞到 property 名，hasattr 判不出
+    with pytest.raises(DinoError, match="未知键"):
+        load_config(p)
+
+
+def test_load_config_rejects_bad_layer_format(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("layers: [blocks.11x]\n", encoding="utf-8")
+    with pytest.raises(DinoError, match="blocks"):
+        load_config(p)
+
+
+def test_load_config_rejects_non_list_layers(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("layers: blocks.11\n", encoding="utf-8")
+    with pytest.raises(DinoError, match="字符串列表"):
+        load_config(p)
+
+
+def test_load_config_rejects_layer_beyond_depth(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("backbone: dinov2_vits14\nlayers: [blocks.23]\n", encoding="utf-8")  # s 深度仅 12
+    with pytest.raises(DinoError, match="深度 12"):
+        load_config(p)
+
+
+def test_load_config_rejects_out_of_range_values(tmp_path):
+    for body in [
+        "coreset_sampling_ratio: 0",
+        "coreset_sampling_ratio: 1.5",
+        "fusion_weight: -0.1",
+        "defect_topk: 0",
+        "num_neighbors: 0",
+        "train_batch_size: 0",
+        "eval_batch_size: 0",
+    ]:
+        p = tmp_path / "c.yaml"
+        p.write_text(body + "\n", encoding="utf-8")
+        with pytest.raises(DinoError, match="非法"):
+            load_config(p)
+
+
+def test_validate_image_size_non_positive():
+    with pytest.raises(DinoError, match="正整数"):
+        validate_image_size(0, 14)
+    with pytest.raises(DinoError, match="正整数"):
+        validate_image_size(-224, 14)
+
+
+def test_load_config_rejects_non_mapping_yaml(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("- just\n- a\n- list\n", encoding="utf-8")
+    with pytest.raises(DinoError, match="mapping"):
+        load_config(p)
