@@ -27,8 +27,8 @@ def test_auroc_drop_warning_degraded_skips():
     assert auroc_drop_warning(parent=None, current=None) is None
 
 
-def test_retrain_end_to_end_with_fakes(tmp_path, monkeypatch):
-    """用 fake 模型与 fake 反馈跑通：预览→应用→新版本→对比告警。"""
+def _setup_retrain_fixture(tmp_path, monkeypatch):
+    """构造 fake 再训练环境：数据集、父版本 v001、1 OK + 1 NG 反馈、fake 模型补丁。"""
     from dino_exp import retrain as rt
 
     cfg = Config(
@@ -108,6 +108,12 @@ def test_retrain_end_to_end_with_fakes(tmp_path, monkeypatch):
     monkeypatch.setattr(rt, "ok_calibration_images", lambda c, cfg: [img])
     monkeypatch.setattr(rt, "score_images", lambda m, ps, cfg: [0.9, 1.1, 1.0])
     monkeypatch.setattr(rt, "validate_full", lambda c, v, cfg: {"version": v, "metrics": {"image_AUROC": 0.92}, "rows": []})
+    return rt, cfg, store
+
+
+def test_retrain_end_to_end_with_fakes(tmp_path, monkeypatch):
+    """用 fake 模型与 fake 反馈跑通：预览→应用→新版本→对比告警。"""
+    rt, cfg, store = _setup_retrain_fixture(tmp_path, monkeypatch)
 
     result = rt.retrain("c", cfg)
     assert result["version"] == "v002"
@@ -115,3 +121,16 @@ def test_retrain_end_to_end_with_fakes(tmp_path, monkeypatch):
     meta = json.loads((cfg.models_root / "c" / "v002" / "meta.json").read_text())
     assert meta["parent"] == "v001" and meta["feedback_applied"] == 2
     assert store.staged() == []  # 暂存区已清空
+
+
+def test_retrain_failure_preserves_staged_feedback(tmp_path, monkeypatch):
+    """validate_full 失败时：暂存区不被消费，反馈可重试（评审修复）。"""
+    rt, cfg, store = _setup_retrain_fixture(tmp_path, monkeypatch)
+
+    def boom(c, v, cfg):
+        raise RuntimeError("validation crashed")
+
+    monkeypatch.setattr(rt, "validate_full", boom)
+    with pytest.raises(RuntimeError, match="validation crashed"):
+        rt.retrain("c", cfg)
+    assert len(store.staged()) == 2  # 暂存区未清空，反馈未丢

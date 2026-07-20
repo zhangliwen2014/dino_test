@@ -8,7 +8,7 @@ from dino_exp.config import Config
 from dino_exp.datasets import ok_calibration_images
 from dino_exp.errors import DinoError
 from dino_exp.feedback.store import FeedbackStore
-from dino_exp.feedback.staging import preview as staging_preview
+from dino_exp.feedback.staging import effective, preview as staging_preview
 from dino_exp.infer import load_model_for_version, load_threshold, preprocess_image
 from dino_exp.models.dual_bank import extract_embeddings, topk_defect_features
 from dino_exp.models.registry import Registry
@@ -54,7 +54,9 @@ def retrain(category: str, cfg: Config) -> dict:
         raise DinoError("暂存区为空，拒绝再训练。请先 `dino feedback ...` 添加反馈。")
     parent = pv["current_version"]
     store = FeedbackStore(cfg.feedback_root, category)
-    effective_rows = store.apply()  # 消费暂存区（同图最新为准）并归档
+    # 生效集合前置计算（纯函数，与 apply() 内部等价）；
+    # 先构建版本，全部成功后才消费暂存区——中途失败时反馈仍可重试。
+    effective_rows = effective(store.staged())
     oks, ngs = partition_feedback(effective_rows)
 
     model, old_threshold, _ = load_model_for_version(category, parent, cfg)
@@ -91,6 +93,7 @@ def retrain(category: str, cfg: Config) -> dict:
     vdir = Registry(cfg.models_root).version_dir(category, version)
     (vdir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     warning = auroc_drop_warning(parent_metrics.get("image_AUROC"), metrics.get("image_AUROC"))
+    store.apply()  # 所有步骤成功后才消费暂存区（归档+清空），返回值无需使用
     return {"version": version, "metrics": metrics, "warning": warning, "preview": pv}
 
 
