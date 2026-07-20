@@ -81,3 +81,14 @@ def test_failed_write_does_not_break_current(tmp_path):
     assert reg.current("bottle") == "v001"  # 指针未被破坏
     assert reg.list("bottle") == ["v001"]   # 半成品已清理
     assert not list((tmp_path / "models" / "bottle").glob(".tmp-*"))
+
+
+def test_read_paths_do_not_create_dirs(tmp_path):
+    """list/current/version_dir 是纯读路径：不为 typo 类别名造空目录（UI 轮询安全）。"""
+    reg = Registry(tmp_path / "models")
+    assert reg.list("typo") == []
+    assert reg.current("typo") is None
+    with pytest.raises(DinoError, match="不存在"):
+        reg.version_dir("typo", "v001")
+    assert not (tmp_path / "models" / "typo").exists()
+    assert not (tmp_path / "models").exists()

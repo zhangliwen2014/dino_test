@@ -57,3 +57,44 @@ def test_finalize_version_saves_banks_threshold_and_meta(tmp_path):
     banks = torch.load(vdir / "normal_bank.pt", weights_only=True)
     assert banks["memory_bank"].shape == (50, 8)
     assert banks["base_bank_size"] == 50
+
+
+def test_train_model_emits_stage_logs(tmp_path, monkeypatch):
+    """log 回调收到各阶段日志（设计 §3.7 训练日志通道，Web UI 轮询展示）。"""
+    from pathlib import Path
+
+    from dino_exp import train as tr
+    from dino_exp.datasets import DatasetInfo
+
+    cfg = Config(data_root=tmp_path / "data", models_root=tmp_path / "models")
+    monkeypatch.setattr(tr, "dataset_info",
+                        lambda c, cfg: DatasetInfo("c", Path("d"), 4, 2, {"broken": 2}))
+    monkeypatch.setattr(tr, "build_folder", lambda c, cfg: object())
+    monkeypatch.setattr(tr, "build_model", lambda cfg: FakeModel())
+    monkeypatch.setattr(tr, "ok_calibration_images", lambda c, cfg: [Path("x.png")])
+    monkeypatch.setattr(tr, "score_images", lambda m, ps, cfg: [1.0, 1.2, 0.8, 1.1])
+
+    class FakeEngine:
+        def __init__(self, **kwargs):
+            pass
+
+        def fit(self, model, datamodule):
+            pass
+
+        def test(self, model, datamodule):
+            return [{"image_AUROC": 0.9}]
+
+    import anomalib.engine
+
+    monkeypatch.setattr(anomalib.engine, "Engine", FakeEngine)
+
+    records = []
+    result = tr.train_model("c", cfg, log=records.append)
+    assert result["version"] == "v001"
+    text = "\n".join(records)
+    assert "校验数据集" in text and "train/good=4" in text
+    assert "Engine.fit 建库中" in text
+    assert "coreset 完成，记忆库 50 条" in text
+    assert "阈值=" in text and "注入完成" in text
+    assert "全量验证" in text
+    assert "版本 v001 已保存" in text

@@ -1,3 +1,5 @@
+import dataclasses
+
 import gradio as gr
 
 from dino_exp.errors import DinoError
@@ -21,11 +23,11 @@ def build(cfg, jm: JobManager):
         state_jid = gr.State(None)
 
         def start(c, bb, cs, sz):
-            run_cfg = type(cfg)(**{**cfg.__dict__, "backbone": bb,
-                                   "coreset_sampling_ratio": float(cs), "image_size": int(sz)})
-            run_cfg.layers = run_cfg.backbone_spec.default_layers
+            run_cfg = dataclasses.replace(
+                cfg, backbone=bb, coreset_sampling_ratio=float(cs), image_size=int(sz))
+            run_cfg.layers = list(run_cfg.backbone_spec.default_layers)
             try:
-                jid = jm.start("train", lambda log: train_model(c, run_cfg))
+                jid = jm.start("train", lambda log: train_model(c, run_cfg, log=log))
                 return jid, f"训练已启动: {jid}", ""
             except DinoError as exc:
                 return None, f"错误: {exc}", ""

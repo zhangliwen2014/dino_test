@@ -25,13 +25,16 @@ class Registry:
     def __init__(self, root: str | Path):
         self.root = Path(root)
 
-    def _exp_dir(self, experiment: str) -> Path:
+    def _exp_dir(self, experiment: str, create: bool = False) -> Path:
         d = self.root / experiment
-        d.mkdir(parents=True, exist_ok=True)
+        if create:
+            d.mkdir(parents=True, exist_ok=True)
         return d
 
     def list(self, experiment: str) -> list[str]:
         d = self._exp_dir(experiment)
+        if not d.is_dir():
+            return []
         return sorted(p.name for p in d.iterdir() if p.is_dir() and _VERSION_RE.match(p.name))
 
     def current(self, experiment: str) -> str | None:
@@ -59,7 +62,7 @@ class Registry:
         metrics: dict,
         meta: dict,
     ) -> str:
-        exp = self._exp_dir(experiment)
+        exp = self._exp_dir(experiment, create=True)
         version = self._next_version(experiment)
         tmp = exp / f".tmp-{version}"
         if tmp.exists():
