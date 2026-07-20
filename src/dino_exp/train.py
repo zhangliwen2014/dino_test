@@ -17,9 +17,21 @@ from dino_exp.models.registry import Registry
 
 def build_model(cfg: Config) -> DualBankPatchcore:
     spec = cfg.backbone_spec
-    from anomalib.metrics import AUPR, AUROC, Evaluator, F1Score
+    from anomalib.metrics import AUPR, AUPRO, AUROC, Evaluator, F1Score
 
-    evaluator = Evaluator(test_metrics=[AUROC(), AUPR(), F1Score()])
+    # 挂法对齐 anomalib AnomalibModule.configure_evaluator：fields 显式指定（无默认，
+    # 裸构造会抛 ValueError）。像素级 strict=False：无 gt_mask 的批次（degraded 数据集）
+    # 静默跳过，compute() 返回 None 而不报错（base.py 已实证）；有 mask 时自动产出
+    # pixel_AUROC/pixel_AUPRO（FR-3.1）。
+    evaluator = Evaluator(
+        test_metrics=[
+            AUROC(fields=["pred_score", "gt_label"], prefix="image_"),
+            AUPR(fields=["pred_score", "gt_label"], prefix="image_"),
+            F1Score(fields=["pred_label", "gt_label"], prefix="image_"),
+            AUROC(fields=["anomaly_map", "gt_mask"], prefix="pixel_", strict=False),
+            AUPRO(fields=["anomaly_map", "gt_mask"], prefix="pixel_", strict=False),
+        ]
+    )
     return DualBankPatchcore(
         backbone=spec.timm_name,
         layers=cfg.layers,
