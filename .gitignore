@@ -1,5 +1,5 @@
 data/
-models/
+/models/
 feedback/
 __pycache__/
 *.egg-info/
