@@ -1,6 +1,6 @@
 data/
 /models/
-feedback/
+/feedback/
 __pycache__/
 *.egg-info/
 .venv/
