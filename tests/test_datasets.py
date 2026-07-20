@@ -115,7 +115,9 @@ def test_build_folder_passes_defect_dir_list(cfg):
     # Folder 接受 Sequence[Path]；验证 abnormal_dir 覆盖全部缺陷类型
     assert isinstance(dm.abnormal_dir, list)
     assert len(dm.abnormal_dir) == 2
-    assert dm.normal_split_ratio == 0.0  # 有 test/good 时不切分
+    # 有 test/good：不从 train/good 切分，train 数不变
+    dm.setup("fit")
+    assert len(dm.train_data) == 5
 
 
 def test_build_folder_split_ratio_when_no_test_good(tmp_path):
@@ -124,7 +126,18 @@ def test_build_folder_split_ratio_when_no_test_good(tmp_path):
         _mkimg(cfg.data_root / "c" / "train" / "good" / f"{i}.png")
         _mkimg(cfg.data_root / "c" / "test" / "broken" / f"{i}.png")
     dm = build_folder("c", cfg)
-    assert dm.normal_split_ratio == 0.2
+    # 无 test/good：anomalib 按 test_split_ratio=0.2 从 train/good 切出 test 正常部分
+    # floor(5×0.8)=4 / floor(5×0.2)=1 → train 4 + test 正常 1
+    dm.setup("fit")
+    assert len(dm.train_data) == 4
+    normal_in_test = dm.test_data.samples[dm.test_data.samples.label_index == 0]
+    assert len(normal_in_test) == 1
+    # 确定性：同 seed 两次切分结果一致
+    dm2 = build_folder("c", cfg)
+    dm2.setup("fit")
+    assert list(normal_in_test.image_path) == list(
+        dm2.test_data.samples[dm2.test_data.samples.label_index == 0].image_path
+    )
 
 
 def test_list_datasets_skips_incomplete_category(cfg):

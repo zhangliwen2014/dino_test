@@ -168,9 +168,12 @@ def build_folder(category: str, cfg: Config):
     """构造 anomalib Folder datamodule。
 
     多缺陷类型：Folder 的 abnormal_dir/mask_dir 接受 Sequence，直接传缺陷子目录
-    路径列表（即设计文档"manifest"的实现形式）。缺 test/good 时 normal_split_ratio=0.2。
-    seed=42 保证切分可复现；val_split_mode=SAME_AS_TEST 使 val 集与 test 集一致，
-    ok_calibration_images 据此读取 OK 校准图（单一事实源）。
+    路径列表（即设计文档"manifest"的实现形式）。缺 test/good 时 anomalib 按
+    test_split_ratio=0.2 从 train/good 切出 test 的正常部分（seed=42 可复现）；
+    有 test/good 时不切分。seed=42 保证切分可复现；val_split_mode=SAME_AS_TEST
+    使 val 集与 test 集一致，ok_calibration_images 据此读取 OK 校准图（单一事实源）。
+
+    注：v2.5.1 的 normal_split_ratio 是死参数（仅存不用），勿依赖。
     """
     from anomalib.data import Folder
     from anomalib.data.utils import ValSplitMode
@@ -197,7 +200,7 @@ def build_folder(category: str, cfg: Config):
         name=category,
         root=info.root,
         normal_dir="train/good",
-        normal_split_ratio=0.0 if info.has_test_good else 0.2,
+        test_split_ratio=0.2,  # 无 test/good 时从 train/good 切 20% 作 test 正常样本（真实生效参数）
         val_split_mode=ValSplitMode.SAME_AS_TEST,
         train_batch_size=cfg.train_batch_size,
         eval_batch_size=cfg.eval_batch_size,
