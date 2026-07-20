@@ -24,7 +24,7 @@
 - anomalib v2.5.1 支持 timm DINOv2/DINOv3 骨干（PR #3627：TimmFeatureExtractor 对 ViT 类骨干自动改走 timm `forward_intermediates`，NCHW 模式下把 token 序列 reshape 为 `(B, D, H, W)` 空间特征图，与 Patchcore 的池化/插值通路兼容）；`Patchcore(backbone=..., layers=...)` 可传 timm 模型名或自定义 `nn.Module`；ViT 骨干的 layers 须写 `blocks.<int>` 形式（候选 `blocks.9` / `blocks.11`），具体默认层为 spike 待定项（见 §8）。
 - `Patchcore` 继承 `MemoryBankMixin`；记忆库是内部 `PatchcoreModel` 上的注册 buffer，属性路径为 `model.model.memory_bank`（`torch.Tensor`），可读写、可子类化扩展，且随 checkpoint 保存。
 - `engine.export(export_type="onnx" | "openvino")` 内置导出；OpenVINO 需 `pip install "anomalib[openvino]"`。
-- 指标内置：`Engine(image_metrics=["AUROC", ...], pixel_metrics=["AUROC", "AUPRO"])`。
+- 指标内置：v2.5.1 中经 `anomalib.metrics.Evaluator(val_metrics=..., test_metrics=...)` 传入模型构造函数（`Engine(image_metrics=...)` 形式在 v2.5.1 已不存在）。
 - anomalib 支持 Windows；硬件 extras：`[cpu]` / `[cu126]` 等。
 
 ## 2. 分层架构
