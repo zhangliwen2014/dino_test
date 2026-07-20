@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -27,7 +28,9 @@ class FeedbackStore:
 
     @staticmethod
     def _write(file: Path, rows: list[dict]) -> None:
-        file.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        tmp = file.with_suffix(".tmp")
+        tmp.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        os.replace(tmp, file)
 
     def stage(self, record: dict) -> dict:
         src = Path(record["image_path"])

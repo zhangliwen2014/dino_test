@@ -80,3 +80,10 @@ def test_apply_empty_raises(store):
     s, _ = store
     with pytest.raises(DinoError, match="暂存区为空"):
         s.apply()
+
+
+def test_atomic_write_leaves_no_tmp(store):
+    s, img = store
+    s.stage(_fb(img, "ok"))
+    s.apply()
+    assert list(s.dir.glob("*.tmp")) == []
