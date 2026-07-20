@@ -128,7 +128,9 @@ class DualBankPatchcoreModel(PatchcoreModel):
         cap = coreset_cap(self.base_bank_size, self.bank_cap_ratio, p)
         if len(unpinned) <= cap:
             return
-        sampled = KCenterGreedy(embedding=unpinned, sampling_ratio=cap / len(unpinned)).sample_coreset()
+        # +0.5 抵消浮点舍入：cap/len 可能使 int(len * ratio) 少 1（如 cap=1, len=49
+        # 时 49*(1/49)=0.9999...→0，KCenterGreedy 抛 ValueError），+0.5 保证取到 cap。
+        sampled = KCenterGreedy(embedding=unpinned, sampling_ratio=(cap + 0.5) / len(unpinned)).sample_coreset()
         self.memory_bank = torch.cat([pinned_part, sampled.to(pinned_part.device)])
 
 
@@ -177,6 +179,11 @@ class DualBankPatchcore(Patchcore):
         与 F1AdaptiveThreshold 的 AnomalibMetric 层级不同），但其 update 为
         no-op 且 compute 恒返回 default_value，因此 validation 重算阈值时
         写回的仍是同一阈值，口径不变。
+
+        生效前提：PostProcessor 的判定（pred_label/pred_mask）基于归一化分数
+        与归一化阈值比较，依赖 validation 阶段拟合的 normalization min/max，
+        未跑过 validation 时归一化阈值为 NaN；本项目应用层判定直接比 raw
+        score 与阈值，不经 PostProcessor 归一化路径。
         """
         t = float(threshold)
         pp = self.post_processor
@@ -228,6 +235,8 @@ def load_banks(model: DualBankPatchcoreModel, bank_dir: str | Path) -> None:
     存储约定：normal_bank.pt 为 save_banks 字典格式（主数据源）；
     defect_bank.pt 在无缺陷库时是 registry 写入的 torch.empty(0) 占位张量，
     若是 2D 张量（独立存档的缺陷库）则优先使用。
+
+    请在 model.to(device) 之前调用：本函数加载到 CPU，buffer 随后随 module 迁移。
     """
     bank_dir = Path(bank_dir)
     nb = torch.load(bank_dir / "normal_bank.pt", map_location="cpu", weights_only=True)
