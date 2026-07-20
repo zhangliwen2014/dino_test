@@ -125,3 +125,29 @@ def test_build_folder_split_ratio_when_no_test_good(tmp_path):
         _mkimg(cfg.data_root / "c" / "test" / "broken" / f"{i}.png")
     dm = build_folder("c", cfg)
     assert dm.normal_split_ratio == 0.2
+
+
+def test_list_datasets_skips_incomplete_category(cfg):
+    bad = cfg.data_root / "broken_cat"
+    (bad / "test" / "good").mkdir(parents=True)
+    with pytest.warns(UserWarning, match="跳过不完整类别 'broken_cat'"):
+        rows = list_datasets(cfg)
+    assert [r.category for r in rows] == ["bottle"]
+
+
+def test_build_folder_warns_when_mask_partial(cfg):
+    # bottle 只有 broken 有 mask，contamination 缺 mask → 整体弃用并告警
+    with pytest.warns(UserWarning, match="contamination 缺少 mask 目录.*整体弃用"):
+        dm = build_folder("bottle", cfg)
+    assert dm.mask_dir is None
+
+
+def test_import_images_atomic_on_conflict(cfg):
+    src = cfg.data_root / "incoming3"
+    src.mkdir()
+    (src / "new.png").write_bytes(b"x")
+    (src / "g0.png").write_bytes(b"x")  # 与 test/good/g0.png 重名
+    with pytest.raises(DinoError, match="目标已存在"):
+        import_images([src / "new.png", src / "g0.png"], "bottle", "ok", None, cfg)
+    # 第一张也不应落盘（全量校验先于拷贝）
+    assert not (cfg.data_root / "bottle" / "test" / "good" / "new.png").exists()
