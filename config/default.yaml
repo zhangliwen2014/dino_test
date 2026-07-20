@@ -1,0 +1,17 @@
+# DINO 异常检测默认配置
+backbone: dinov2_vits14        # 别名，见 dino_exp.config.BACKBONE_ALIASES
+layers: [blocks.11]            # ViT 特征层，spike(scripts/spike_backbone.py)确认后写回
+image_size: 224                # 必须为骨干 patch 尺寸整数倍(DINOv2=14, DINOv3=16)
+coreset_sampling_ratio: 0.1
+num_neighbors: 9
+fusion_weight: 0.5             # 缺陷库加分权重 w
+bank_cap_ratio: 1.5            # 正常库上限 = 基础版本库大小 × 此倍数(钉住特征除外)
+defect_topk: 10                # NG 反馈取 top-k 高分 patch
+threshold_sigma: 3.0           # 阈值 = mean + sigma * std
+suspicious_score_factor: 3.0   # 护栏: OK 反馈 score > 此倍数×阈值 视为可疑
+train_batch_size: 16
+eval_batch_size: 16
+num_workers: 0                 # Windows 默认 0
+data_root: data
+models_root: models
+feedback_root: feedback

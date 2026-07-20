@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dino-exp"
+version = "0.1.0"
+description = "DINO 无监督异常检测试验环境"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "anomalib[cpu]==2.5.1",
+    "click>=8.1",
+    "gradio>=5.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+openvino = ["anomalib[openvino]==2.5.1"]
+
+[project.scripts]
+dino = "dino_exp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = ["slow: 需要真实骨干权重与较长运行时间的测试"]
