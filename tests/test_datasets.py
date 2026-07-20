@@ -6,6 +6,7 @@ from dino_exp.datasets import (
     dataset_info,
     import_images,
     list_datasets,
+    mask_path_for,
     ok_calibration_images,
     test_images_with_labels,
 )
@@ -108,6 +109,18 @@ def test_test_images_with_labels(cfg):
     assert labels["g0.png"] == (0, "good")
     assert labels["b0.png"] == (1, "broken")
     assert labels["c0.png"] == (1, "contamination")
+
+
+def test_mask_path_for(cfg):
+    info = dataset_info("bottle", cfg)
+    root = info.root
+    # 有 mask 的 NG 图：按 MVTec 约定 mask/<defect_type>/<stem>_mask.png
+    assert mask_path_for(root / "test" / "broken" / "b0.png", "broken", info) == (
+        root / "mask" / "broken" / "b0_mask.png"
+    )
+    # 无 mask 文件的 NG 图 / good 图 → None
+    assert mask_path_for(root / "test" / "broken" / "b1.png", "broken", info) is None
+    assert mask_path_for(root / "test" / "good" / "g0.png", "good", info) is None
 
 
 def test_build_folder_passes_defect_dir_list(cfg):

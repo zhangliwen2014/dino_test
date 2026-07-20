@@ -89,7 +89,11 @@ def retrain(category: str, cfg: Config) -> dict:
     )
     # 自动验证并与父版本对比（FR-3.4/FR-6.5）
     report = validate_full(category, version, cfg)
-    metrics = {**report["metrics"], "threshold": model_threshold(cfg, category, version)}
+    metrics = {
+        **report["metrics"],
+        "threshold": model_threshold(cfg, category, version),
+        "parent_threshold": old_threshold,  # FR-6.5：新旧阈值同处记录
+    }
     vdir = Registry(cfg.models_root).version_dir(category, version)
     (vdir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     warning = auroc_drop_warning(parent_metrics.get("image_AUROC"), metrics.get("image_AUROC"))

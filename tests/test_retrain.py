@@ -120,6 +120,9 @@ def test_retrain_end_to_end_with_fakes(tmp_path, monkeypatch):
     assert result["warning"] is not None and "回滚" in result["warning"]  # 0.95→0.92 降 3 点
     meta = json.loads((cfg.models_root / "c" / "v002" / "meta.json").read_text())
     assert meta["parent"] == "v001" and meta["feedback_applied"] == 2
+    # FR-6.5：新旧阈值同处记录（fake load_model_for_version 返回 old_threshold=1.0）
+    metrics = json.loads((cfg.models_root / "c" / "v002" / "metrics.json").read_text())
+    assert metrics["parent_threshold"] == 1.0
     assert store.staged() == []  # 暂存区已清空
 
 

@@ -164,6 +164,14 @@ def test_images_with_labels(category: str, cfg: Config) -> list[tuple[Path, int,
 test_images_with_labels.__test__ = False
 
 
+def mask_path_for(image_path: Path, defect_type: str, info: DatasetInfo) -> Path | None:
+    """NG 测试图对应的 GT mask（MVTec 约定 mask/<defect_type>/<stem>_mask.png）；无则 None。"""
+    if defect_type == "good":
+        return None
+    p = info.root / "mask" / defect_type / f"{image_path.stem}_mask.png"
+    return p if p.is_file() else None
+
+
 def build_folder(category: str, cfg: Config):
     """构造 anomalib Folder datamodule。
 
