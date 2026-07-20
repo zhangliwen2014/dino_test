@@ -15,14 +15,21 @@ from dino_exp.models.dual_bank import DualBankPatchcore, load_banks
 from dino_exp.models.registry import Registry
 
 
-def preprocess_image(path: str | Path, image_size: int) -> torch.Tensor:
+def _preprocess_pil(im: Image.Image, image_size: int) -> torch.Tensor:
+    # ToDtype 先于 Resize：与 anomalib PreProcessor 一致在 float 空间 resize，
+    # 避免 uint8 空间 resize 的 ≤0.5/255 舍入差（口径 bitwise 对齐）
     tf = T.Compose([
         T.ToImage(),
-        T.Resize((image_size, image_size), antialias=True),
         T.ToDtype(torch.float32, scale=True),
+        T.Resize((image_size, image_size), antialias=True),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    return tf(Image.open(path).convert("RGB")).unsqueeze(0)
+    return tf(im).unsqueeze(0)
+
+
+def preprocess_image(path: str | Path, image_size: int) -> torch.Tensor:
+    with Image.open(path) as im:
+        return _preprocess_pil(im.convert("RGB"), image_size)
 
 
 def decide_label(score: float, threshold: float) -> str:
@@ -46,6 +53,12 @@ def heatmap_to_bgr(anomaly_map: torch.Tensor, out_size: tuple[int, int]) -> np.n
     return cv2.applyColorMap((amap * 255).astype(np.uint8), cv2.COLORMAP_JET)
 
 
+def _heatmap_name(path: str | Path, version: str) -> str:
+    """热力图文件名含父目录名，避免同名不同目录图片的输出互相覆盖。"""
+    p = Path(path)
+    return f"{p.parent.name}_{p.stem}_{version}_heatmap.png"
+
+
 def load_model_for_version(category: str, version: str | None, cfg: Config) -> tuple[DualBankPatchcore, float, str]:
     """加载指定（或当前）版本模型 + 阈值。返回 (model, threshold, version)。"""
     reg = Registry(cfg.models_root)
@@ -63,6 +76,40 @@ def load_model_for_version(category: str, version: str | None, cfg: Config) -> t
     return model, threshold, version
 
 
+def _to_device(model: DualBankPatchcore) -> DualBankPatchcore:
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return model.to(device)
+
+
+def _infer_loaded(
+    model: DualBankPatchcore,
+    threshold: float,
+    version: str,
+    path: str | Path,
+    cfg: Config,
+    heatmap_dir: str | Path = "outputs/heatmaps",
+) -> dict:
+    """对已加载模型的纯推理（不含模型加载），供单图/批量共用。"""
+    device = next(model.parameters()).device
+    with Image.open(path) as im:  # 一次打开：同时取原图尺寸与预处理输入
+        im = im.convert("RGB")
+        out_size = im.size  # (W, H)
+        tensor = _preprocess_pil(im, cfg.image_size).to(device)
+    with torch.no_grad():
+        out = model.model(tensor)
+    score = float(out.pred_score.item())
+    hdir = Path(heatmap_dir)
+    hdir.mkdir(parents=True, exist_ok=True)
+    heatmap_path = hdir / _heatmap_name(path, version)
+    cv2.imwrite(str(heatmap_path), heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
+    return {
+        "label": decide_label(score, threshold),
+        "score": score,
+        "threshold": threshold,
+        "heatmap_path": str(heatmap_path),
+    }
+
+
 def infer_image(
     path: str | Path,
     version: str | None = None,
@@ -73,28 +120,13 @@ def infer_image(
 ) -> dict:
     """单图推理 → {label, score, threshold, heatmap_path}（设计文档 §3.5）。"""
     model, threshold, version = load_model_for_version(category, version, cfg)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
-    tensor = preprocess_image(path, cfg.image_size).to(device)
-    with torch.no_grad():
-        out = model.model(tensor)
-    score = float(out.pred_score.item())
-    hdir = Path(heatmap_dir)
-    hdir.mkdir(parents=True, exist_ok=True)
-    heatmap_path = hdir / f"{Path(path).stem}_{version}_heatmap.png"
-    with Image.open(path) as im:
-        out_size = im.size  # (W, H)
-    cv2.imwrite(str(heatmap_path), heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
-    return {
-        "label": decide_label(score, threshold),
-        "score": score,
-        "threshold": threshold,
-        "heatmap_path": str(heatmap_path),
-    }
+    return _infer_loaded(_to_device(model), threshold, version, path, cfg, heatmap_dir)
 
 
 def infer_batch(paths: list[str | Path], version: str | None = None, *, category: str, cfg: Config) -> list[dict]:
-    return [infer_image(p, version, category=category, cfg=cfg) for p in paths]
+    model, threshold, version = load_model_for_version(category, version, cfg)  # 批量只加载一次
+    model = _to_device(model)
+    return [_infer_loaded(model, threshold, version, p, cfg) for p in paths]
 
 
 def export_openvino(category: str, version: str | None, cfg: Config) -> Path:
@@ -103,10 +135,8 @@ def export_openvino(category: str, version: str | None, cfg: Config) -> Path:
     导出物写入 models/<类别>/<版本>/export/；导出时双库状态被烘焙进图，
     再训练后必须对新版本重新调用本函数。失败时抛 DinoError 并提示回退 PyTorch。
     """
-    try:
-        from anomalib.engine import Engine
-    except ImportError as exc:
-        raise DinoError(f"anomalib 导入失败: {exc}。请检查环境后重试。") from exc
+    from anomalib.engine import Engine
+
     model, threshold, version = load_model_for_version(category, version, cfg)
     export_root = Registry(cfg.models_root).version_dir(category, version) / "export"
     export_root.mkdir(parents=True, exist_ok=True)

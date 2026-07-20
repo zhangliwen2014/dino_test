@@ -30,3 +30,37 @@ def test_heatmap_to_bgr_shape_and_range():
     bgr = heatmap_to_bgr(amap, out_size=(64, 64))
     assert bgr.shape == (64, 64, 3)
     assert bgr.dtype == np.uint8
+
+
+def test_heatmap_name_includes_parent_dir(tmp_path):
+    """同名不同目录的图片产生不同热力图文件名，避免互相覆盖。"""
+    from dino_exp.infer import _heatmap_name
+
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    pa = tmp_path / "a" / "x.png"
+    pb = tmp_path / "b" / "x.png"
+    assert _heatmap_name(pa, "v001") == "a_x_v001_heatmap.png"
+    assert _heatmap_name(pb, "v001") == "b_x_v001_heatmap.png"
+    assert _heatmap_name(pa, "v001") != _heatmap_name(pb, "v001")
+
+
+def test_infer_batch_loads_model_once(monkeypatch):
+    """批量推理只加载一次模型。"""
+    import dino_exp.infer as infer_mod
+
+    calls = {"n": 0}
+
+    class FakeModel:
+        def to(self, device):
+            return self
+
+    def fake_load(category, version, cfg):
+        calls["n"] += 1
+        return FakeModel(), 1.0, "v001"
+
+    monkeypatch.setattr(infer_mod, "load_model_for_version", fake_load)
+    monkeypatch.setattr(infer_mod, "_infer_loaded", lambda *a, **k: {"label": "OK"})
+    results = infer_mod.infer_batch(["a.png", "b.png", "c.png"], category="x", cfg=None)
+    assert calls["n"] == 1
+    assert results == [{"label": "OK"}] * 3
