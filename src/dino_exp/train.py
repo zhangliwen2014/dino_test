@@ -49,9 +49,10 @@ def score_images(model, image_paths: list[Path], cfg: Config) -> list[float]:
     from dino_exp.infer import preprocess_image
 
     model.eval()
+    device = next(model.model.parameters()).device  # 跟随模型设备（GPU 训练后为 cuda）
     scores = []
     for p in image_paths:
-        tensor = preprocess_image(p, cfg.image_size)
+        tensor = preprocess_image(p, cfg.image_size).to(device)
         with torch.no_grad():
             out = model.model(tensor)
         scores.append(float(out.pred_score.item()))

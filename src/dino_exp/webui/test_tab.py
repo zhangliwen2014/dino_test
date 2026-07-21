@@ -116,8 +116,11 @@ def build(cfg):
         rt_btn.click(do_retrain, cat, rt_out)
 
         ver_out = gr.Dataframe(headers=["版本", "当前"], label="版本列表")
-        rb_ver = gr.Textbox(label="回滚到版本")
-        rb_btn = gr.Button("回滚")
+        with gr.Row():
+            rb_ver = gr.Textbox(label="版本号（如 v001）", scale=2)
+            rb_btn = gr.Button("回滚到该版本", scale=1)
+            del_confirm = gr.Checkbox(label="确认删除", value=False, scale=1)
+            del_btn = gr.Button("删除该版本", variant="stop", scale=1)
         rb_msg = gr.Textbox(label="结果", interactive=False)
 
         def list_versions(c):
@@ -133,5 +136,16 @@ def build(cfg):
                 summary, detail = error_pair(exc)
                 return summary, detail
 
+        def do_delete(c, v, confirmed):
+            if not confirmed:
+                return "请先勾选「确认删除」再执行。", ""
+            try:
+                d = Registry(cfg.models_root).delete(c, v)
+                return f"已删除: {d}", ""
+            except Exception as exc:
+                summary, detail = error_pair(exc)
+                return summary, detail
+
         gr.Timer(5.0).tick(list_versions, cat, ver_out)
         rb_btn.click(do_rollback, [cat, rb_ver], [rb_msg, err_detail])
+        del_btn.click(do_delete, [cat, rb_ver, del_confirm], [rb_msg, err_detail])

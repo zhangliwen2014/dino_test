@@ -15,8 +15,10 @@
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -e ".[dev]"
 
-# 可选：NVIDIA GPU 用户改装 GPU 版 torch
-.venv/Scripts/python.exe -m pip install "anomalib[cu126]==2.5.1"
+# 可选：NVIDIA GPU 用户改装 CUDA 版 torch（实测 RTX 3060 + cu126 可用，约 2-3GB 下载）
+.venv/Scripts/python.exe -m pip install "torch==2.13.0+cu126" "torchvision==0.28.0+cu126" --index-url https://download.pytorch.org/whl/cu126
+# 验证：.venv/Scripts/python.exe -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# 装好后无需改任何代码：训练/推理自动检测并使用 GPU（设备自适应）
 
 # 可选：OpenVINO 推理加速
 .venv/Scripts/python.exe -m pip install "anomalib[openvino]==2.5.1"

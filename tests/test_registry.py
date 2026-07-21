@@ -92,3 +92,29 @@ def test_read_paths_do_not_create_dirs(tmp_path):
         reg.version_dir("typo", "v001")
     assert not (tmp_path / "models" / "typo").exists()
     assert not (tmp_path / "models").exists()
+
+
+def test_delete_version(tmp_path):
+    reg = Registry(tmp_path / "models")
+    v1 = _create(reg, tmp_path)
+    v2 = _create(reg, tmp_path, parent=v1)
+    # current 是 v002，删除 v001 应成功
+    reg.delete("bottle", v1)
+    assert reg.list("bottle") == ["v002"]
+    assert not (tmp_path / "models" / "bottle" / "v001").exists()
+
+
+def test_delete_current_version_raises(tmp_path):
+    reg = Registry(tmp_path / "models")
+    _create(reg, tmp_path)
+    with pytest.raises(DinoError, match="当前使用中"):
+        reg.delete("bottle", "v001")
+    # 版本未被删
+    assert reg.list("bottle") == ["v001"]
+
+
+def test_delete_missing_version_raises(tmp_path):
+    reg = Registry(tmp_path / "models")
+    _create(reg, tmp_path)
+    with pytest.raises(DinoError, match="不存在"):
+        reg.delete("bottle", "v009")

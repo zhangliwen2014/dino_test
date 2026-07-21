@@ -97,3 +97,14 @@ class Registry:
     def rollback(self, experiment: str, version: str) -> None:
         """回滚 = 切换 current 指针；历史版本目录从不被修改。"""
         self.switch(experiment, version)
+
+    def delete(self, experiment: str, version: str) -> Path:
+        """删除指定版本目录（不可恢复）。当前使用中的版本不可删除，需先切换/回滚。"""
+        d = self.version_dir(experiment, version)  # 不存在则抛 DinoError
+        if self.current(experiment) == version:
+            raise DinoError(
+                f"版本 {experiment}/{version} 是当前使用中的版本，不能删除。"
+                f"请先 `dino rollback --category {experiment} <其他版本>` 切换后再删。"
+            )
+        shutil.rmtree(d)
+        return d

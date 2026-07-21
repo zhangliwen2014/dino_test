@@ -263,6 +263,23 @@ def rollback(cfg, category, version):
     click.echo(f"已回滚到 {version}。")
 
 
+@main.command("delete-version")
+@click.option("--category", required=True)
+@click.argument("version")
+@click.option("--yes", is_flag=True, help="跳过确认直接删除")
+@click.pass_obj
+@_err
+def delete_version(cfg, category, version, yes):
+    """删除指定模型版本（不可恢复；当前使用中的版本不可删）。"""
+    from dino_exp.models.registry import Registry
+
+    if not yes and not click.confirm(f"确认删除版本 {category}/{version}？不可恢复"):
+        click.echo("已取消。")
+        return
+    d = Registry(cfg.models_root).delete(category, version)
+    click.echo(f"已删除: {d}")
+
+
 @main.command()
 @click.option("--category", required=True)
 @click.option("--version", default=None, help="缺省为当前版本；导出物写入该版本 export/ 目录")
