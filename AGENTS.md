@@ -70,6 +70,16 @@ src/dino_exp/
 - 杀 Gradio 进程：Git Bash `kill` 可能杀不掉，`netstat -ano | grep 7860` 找 PID 后 `taskkill //PID <pid> //F`。
 - OpenVINO 导出是**版本快照**（库烘焙进图），再训练后需对新版本重新导出；`anomalib[openvino]` 为可选依赖，导出未端到端实测。
 
+### Windows 批处理（.bat）编写规则——新增/修改 scripts/*.bat 时必须遵守
+
+cmd.exe 的批处理解析器按**系统 ANSI 代码页（本机 GBK）**读取文件，且对行尾敏感。本项目三条 .bat（run_ui/dino_cli/run_tests）均按以下规则编写，改动时不要破坏：
+
+1. **编码必须是 GBK（ANSI），不能是 UTF-8**。UTF-8 的中文会被按 GBK 错解，导致 `'...' 不是内部或外部命令` 这类莫名其妙的解析错误。`chcp 65001` 写在文件里**不能**可靠修复（解析器对已缓冲内容不重解码），不要依赖它。编辑器/工具默认输出 UTF-8 时，用 `iconv -f UTF-8 -t GBK` 转换。
+2. **行尾必须是 CRLF，不能是 LF**。LF-only 的 .bat 会出现行解析错乱（命令被截断执行、goto 标签失效）。用 `sed -i 's/$/\r/'` 转换。仓库根 `.gitattributes` 已锁定 `*.bat text eol=crlf`、`*.sh text eol=lf`，不要删。
+3. **避免在 echo 文本中使用 `|`、`&`、`<`、`>`、`%` 等 cmd 特殊字符**（必须用时转义 `^|`、`%%`）；路径参数引用用 `"%~1"` 形式防空格。
+4. **验证方法**：`cmd.exe //c "scripts\xxx.bat -h"`（Git Bash 中调用）；输出到管道时是 GBK 字节流，用 `iconv -f GBK -t UTF-8` 转回查看——管道里看到乱码只是捕获端问题，真实 GBK 控制台显示正常，不要误判为脚本错误。
+5. 对应的 `.sh` 版本保持 UTF-8 + LF，两个版本逻辑需同步修改。
+
 ## 当前状态（2026-07-20）
 
 分支 `feat/dino-exp-impl`（待合并 main）：13 个计划任务全部完成，验收全过（bottle image_AUROC=1.0；误报反馈翻转 NG→OK 且 AUROC 不降；CLI+UI 全流程各走通一遍）。Known issues 见 README 文末与终审报告（UI 缺 export/unstage 入口、验证页直接反馈未做、OpenVINO 未实测、DINOv3 gated 需 token）。
