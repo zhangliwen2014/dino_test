@@ -55,12 +55,13 @@ def dataset_list(cfg):
 
 @dataset.command("download")
 @click.option("--category", required=True)
+@click.option("--force", is_flag=True, help="目标目录已存在时先删除再重新下载（用于中断后重试）")
 @click.pass_obj
 @_err
-def dataset_download(cfg, category):
+def dataset_download(cfg, category, force):
     from dino_exp.datasets import import_mvtec
 
-    dest = import_mvtec(category, cfg)
+    dest = import_mvtec(category, cfg, force=force)
     click.echo(f"已下载并转换: {dest}")
 
 

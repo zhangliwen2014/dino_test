@@ -177,3 +177,42 @@ def test_import_images_atomic_on_conflict(cfg):
         import_images([src / "new.png", src / "g0.png"], "bottle", "ok", None, cfg)
     # 第一张也不应落盘（全量校验先于拷贝）
     assert not (cfg.data_root / "bottle" / "test" / "good" / "new.png").exists()
+
+
+def test_import_mvtec_existing_dest_fails_fast_without_download(tmp_path, monkeypatch):
+    """目标已存在且无 --force：先报错，不触发 4.9GB 下载。"""
+    from dino_exp import datasets as ds
+
+    cfg = Config(data_root=tmp_path / "data")
+    (cfg.data_root / "bottle").mkdir(parents=True)
+    called = []
+    monkeypatch.setattr("anomalib.data.MVTecAD", lambda *a, **k: called.append(1))
+    with pytest.raises(DinoError, match="--force"):
+        ds.import_mvtec("bottle", cfg)
+    assert not called  # 未触发下载（先校验后下载）
+
+
+def test_import_mvtec_force_replaces_existing(tmp_path, monkeypatch):
+    """--force：删除已存在目录（含中断半成品）后重新导入。"""
+    from dino_exp import datasets as ds
+
+    cfg = Config(data_root=tmp_path / "data")
+    (cfg.data_root / "bottle" / "stale").mkdir(parents=True)  # 上次中断的半成品
+    src = tmp_path / "mvtec" / "bottle"
+    (src / "train" / "good").mkdir(parents=True)
+    (src / "train" / "good" / "t0.png").write_bytes(b"x")
+    (src / "test" / "good").mkdir(parents=True)
+    (src / "test" / "good" / "g0.png").write_bytes(b"x")
+    monkeypatch.setattr(ds, "MVTEC_ROOT", tmp_path / "mvtec")
+
+    class FakeDM:
+        def __init__(self, *a, **k):
+            pass
+
+        def prepare_data(self):
+            pass
+
+    monkeypatch.setattr("anomalib.data.MVTecAD", FakeDM)
+    dest = ds.import_mvtec("bottle", cfg, force=True)
+    assert not (dest / "stale").exists()  # 半成品已清除
+    assert (dest / "train" / "good" / "t0.png").exists()

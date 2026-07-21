@@ -106,21 +106,27 @@ def import_images(srcs: list[str | Path], category: str, label: str, defect_type
     return out
 
 
-def import_mvtec(category: str, cfg: Config) -> Path:
+def import_mvtec(category: str, cfg: Config, force: bool = False) -> Path:
     """调用 anomalib MVTecAD 自动下载，再拷贝/重命名为统一目录规范。
 
     先拷到临时目录，成功后 rename 为正式目录；任何一步失败都清理临时目录，
-    不留下半个数据集。
+    不留下半个数据集。force=True 时先删除已存在的目标目录（用于中断后重下）。
     """
     from anomalib.data import MVTecAD
+
+    dest = cfg.data_root / category
+    if dest.exists():
+        if not force:
+            raise DinoError(
+                f"目标已存在: {dest}。若是上次中断留下的半成品，请加 --force 重新下载，"
+                "或手动删除该目录后重试。"
+            )
+        shutil.rmtree(dest)
 
     MVTecAD(root=str(MVTEC_ROOT), category=category).prepare_data()  # 触发下载解压
     src = MVTEC_ROOT / category
     if not src.is_dir():
         raise DinoError(f"MVTec 下载后未找到 {src}。请检查网络后重试 `dino dataset download`。")
-    dest = cfg.data_root / category
-    if dest.exists():
-        raise DinoError(f"目标已存在: {dest}。如需重新导入请先删除该目录。")
     tmp = dest.parent / (dest.name + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)  # 清理上次失败遗留
     try:
