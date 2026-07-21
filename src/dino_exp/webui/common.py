@@ -30,3 +30,22 @@ def error_text(exc: Exception) -> str:
     """兼容旧调用：单文本场景 = 摘要 + 详情拼接。"""
     s, d = error_pair(exc)
     return s if isinstance(exc, DinoError) else f"{s}\n\n{d}"
+
+
+def category_choices(cfg) -> list[str]:
+    """data_root 下现有类别名列表（供下拉选择）。"""
+    root = cfg.data_root
+    if not root.is_dir():
+        return []
+    return sorted(d.name for d in root.iterdir() if d.is_dir())
+
+
+def category_dropdown(cfg, *, allow_custom: bool = False, refresh: float = 5.0, **kw):
+    """类别下拉框：choices 来自现有数据集并定时刷新；allow_custom=True 时允许输入新类别。"""
+    import gradio as gr
+
+    dd = gr.Dropdown(choices=category_choices(cfg), allow_custom_value=allow_custom,
+                     filterable=True, **kw)
+    if refresh:
+        gr.Timer(refresh).tick(lambda: gr.update(choices=category_choices(cfg)), None, dd)
+    return dd

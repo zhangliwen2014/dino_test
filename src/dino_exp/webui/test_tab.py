@@ -5,12 +5,12 @@ from dino_exp.feedback.store import FeedbackStore
 from dino_exp.infer import infer_image
 from dino_exp.models.registry import Registry
 from dino_exp.retrain import preview_retrain, retrain
-from dino_exp.webui.common import error_pair
+from dino_exp.webui.common import category_dropdown, error_pair
 
 
 def build(cfg):
     with gr.Tab("测试与反馈"):
-        cat = gr.Textbox(label="类别名")
+        cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
         version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
         cat.change(lambda c: gr.update(choices=Registry(cfg.models_root).list(c)),
                    cat, version)

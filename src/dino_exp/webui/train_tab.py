@@ -4,12 +4,13 @@ import gradio as gr
 
 from dino_exp.config import resolve_backbone, validate_image_size
 from dino_exp.train import train_model
+from dino_exp.webui.common import category_dropdown
 from dino_exp.webui.jobs import JobManager
 
 
 def build(cfg, jm: JobManager):
     with gr.Tab("训练"):
-        cat = gr.Textbox(label="类别名", placeholder="bottle")
+        cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
         backbone = gr.Dropdown(
             ["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14",
              "dinov3_vits16", "dinov3_vitb16", "dinov3_vitl16"],

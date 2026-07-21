@@ -9,7 +9,7 @@ from dino_exp.datasets import (
     import_mvtec,
     list_datasets,
 )
-from dino_exp.webui.common import error_pair
+from dino_exp.webui.common import category_choices, category_dropdown, error_pair
 
 
 def build(cfg):
@@ -118,7 +118,9 @@ def build(cfg):
             with gr.Tab("导入与下载"):
                 gr.Markdown("### 导入自有图片")
                 with gr.Row():
-                    cat_im = gr.Textbox(label="类别名")
+                    cat_im = category_dropdown(
+                        cfg, allow_custom=True,
+                        label="类别名（选择现有类别，或输入新类别名）", refresh=0)
                     label_im = gr.Radio(["ok", "ng"], value="ok", label="标签")
                     dt_im = gr.Textbox(label="缺陷类型（NG 必填）")
                     split_im = gr.Radio(
@@ -143,7 +145,11 @@ def build(cfg):
 
                 gr.Markdown("### 下载 MVTec AD 公开数据集")
                 with gr.Row():
-                    cat_dl = gr.Textbox(label="MVTec 类别名", placeholder="bottle")
+                    cat_dl = gr.Dropdown(
+                        ["bottle", "cable", "capsule", "carpet", "grid", "hazelnut",
+                         "leather", "metal_nut", "pill", "screw", "tile", "toothbrush",
+                         "transistor", "wood", "zipper"],
+                        value="bottle", label="MVTec 类别", scale=2)
                     btn_dl = gr.Button("下载", variant="primary")
                     btn_dl_force = gr.Button("强制重新下载（删除旧目录）")
                 dl_msg = gr.Textbox(label="结果", interactive=False)
@@ -171,9 +177,7 @@ def build(cfg):
                 mgr_msg = gr.Textbox(label="结果", interactive=False)
 
                 def _categories():
-                    if not cfg.data_root.is_dir():
-                        return []
-                    return sorted(d.name for d in cfg.data_root.iterdir() if d.is_dir())
+                    return category_choices(cfg)
 
                 btn_mgr_refresh.click(lambda: gr.update(choices=_categories()), None, cat_mgr)
                 gr.Timer(10.0).tick(lambda: gr.update(choices=_categories()), None, cat_mgr)

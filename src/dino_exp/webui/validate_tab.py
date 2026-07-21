@@ -3,12 +3,12 @@ import gradio as gr
 from dino_exp.datasets import category_images
 from dino_exp.models.registry import Registry
 from dino_exp.validate import filter_errors, validate_full, validate_images
-from dino_exp.webui.common import error_pair
+from dino_exp.webui.common import category_dropdown, error_pair
 
 
 def build(cfg):
     with gr.Tab("验证"):
-        cat = gr.Textbox(label="类别名")
+        cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
         version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
         errors_only = gr.Checkbox(label="只看误判", value=False)
         btn_full = gr.Button("全量验证", variant="primary")
