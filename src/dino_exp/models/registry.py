@@ -85,6 +85,10 @@ class Registry:
             shutil.rmtree(tmp, ignore_errors=True)
             raise DinoError(f"版本写入失败: {exc}。当前版本未受影响，请检查磁盘空间与路径后重试。") from exc
         self.switch(experiment, version)  # current 指针最后更新
+        from dino_exp.logs import get_logger
+
+        get_logger("registry").info("[%s] 新版本已保存: %s（父版本: %s）",
+                                    experiment, version, meta.get("parent"))
         return version
 
     def switch(self, experiment: str, version: str) -> None:

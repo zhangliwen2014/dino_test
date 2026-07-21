@@ -104,7 +104,15 @@ def train_model(category: str, cfg: Config, log=None) -> dict:
     """
     from anomalib.engine import Engine
 
-    log = log or (lambda msg: None)
+    from dino_exp.logs import get_logger
+
+    _logger = get_logger("train")
+    user_log = log or (lambda msg: None)
+
+    def log(msg: str) -> None:
+        _logger.info("[%s] %s", category, msg)  # 持久化到 logs/dino.log
+        user_log(msg)  # UI 队列
+
     info = dataset_info(category, cfg)  # 结构校验前置（NFR-4）
     log(f"校验数据集... train/good={info.train_good} test/good={info.test_good}")
     log("加载骨干与数据...")

@@ -6,6 +6,7 @@ import click
 
 from dino_exp.config import load_config
 from dino_exp.errors import DinoError
+from dino_exp.logs import get_logger, setup_logging
 
 
 @click.group()
@@ -13,6 +14,7 @@ from dino_exp.errors import DinoError
 @click.pass_context
 def main(ctx, config_path):
     """dino — DINO 无监督异常检测试验环境 CLI。"""
+    setup_logging()
     ctx.obj = load_config(config_path)
 
 
@@ -25,7 +27,11 @@ def _err(fn):
         try:
             return fn(*a, **k)
         except DinoError as exc:
+            get_logger("cli").warning("操作失败: %s", exc)
             raise click.ClickException(str(exc)) from exc
+        except Exception:
+            get_logger("cli").exception("未预期的错误")
+            raise
 
     return wrapper
 

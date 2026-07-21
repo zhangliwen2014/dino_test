@@ -1,11 +1,14 @@
 import gradio as gr
 
 from dino_exp.config import Config
+from dino_exp.logs import get_logger, setup_logging
 from dino_exp.webui import dataset_tab, test_tab, train_tab, validate_tab
 from dino_exp.webui.jobs import JobManager
 
 
 def launch(cfg: Config, port: int = 7860, host: str = "127.0.0.1") -> None:
+    log_file = setup_logging()
+    get_logger("webui").info("启动 Web UI: http://%s:%d（日志: %s）", host, port, log_file)
     jm = JobManager()
     with gr.Blocks(title="DINO 异常检测试验环境") as demo:
         gr.Markdown("# DINO 无监督异常检测试验环境")

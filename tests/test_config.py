@@ -138,3 +138,22 @@ def test_load_config_rejects_non_mapping_yaml(tmp_path):
     p.write_text("- just\n- a\n- list\n", encoding="utf-8")
     with pytest.raises(DinoError, match="mapping"):
         load_config(p)
+
+
+def test_setup_logging_creates_file(tmp_path):
+    import logging
+
+    import dino_exp.logs as logs_mod
+
+    # 重置全局状态（其他测试可能已初始化过默认日志目录）
+    logger = logging.getLogger("dino_exp")
+    for h in list(logger.handlers):
+        logger.removeHandler(h)
+    logs_mod._configured = False
+
+    log_file = logs_mod.setup_logging(tmp_path / "logs")
+    logs_mod.get_logger("test").info("hello-log-test")
+    for h in logger.handlers:
+        h.flush()
+    assert log_file.exists()
+    assert "hello-log-test" in log_file.read_text(encoding="utf-8")

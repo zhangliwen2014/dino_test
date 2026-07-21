@@ -32,9 +32,15 @@ class JobManager:
             except DinoError as exc:
                 # 应用层错误：信息已含修复建议，直接展示，不刷堆栈
                 self._jobs[jid].update(state="error", error=str(exc))
+                from dino_exp.logs import get_logger
+
+                get_logger("jobs").warning("[%s] 任务失败: %s", kind, exc)
             except Exception:
                 # 未知异常：保留堆栈便于排查
                 self._jobs[jid].update(state="error", error=traceback.format_exc(limit=5))
+                from dino_exp.logs import get_logger
+
+                get_logger("jobs").exception("[%s] 任务异常", kind)
 
         threading.Thread(target=run, daemon=True).start()
         return jid

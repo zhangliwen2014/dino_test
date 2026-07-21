@@ -51,6 +51,13 @@ class FeedbackStore:
         rows = self._read(self.staged_file)
         rows.append(row)
         self._write(self.staged_file, rows)
+        from dino_exp.logs import get_logger
+
+        get_logger("feedback").info(
+            "[%s] 反馈暂存 %s: 人工标签=%s 预测=%s score=%.4f 版本=%s 图=%s",
+            self.dir.name, fid, row["human_label"], row["prediction"],
+            row["score"], row["model_version"], src.name,
+        )
         return row
 
     def staged(self) -> list[dict]:

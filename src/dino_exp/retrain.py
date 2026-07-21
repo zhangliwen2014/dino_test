@@ -98,6 +98,14 @@ def retrain(category: str, cfg: Config) -> dict:
     (vdir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     warning = auroc_drop_warning(parent_metrics.get("image_AUROC"), metrics.get("image_AUROC"))
     store.apply()  # 所有步骤成功后才消费暂存区（归档+清空），返回值无需使用
+    from dino_exp.logs import get_logger
+
+    get_logger("retrain").info(
+        "[%s] 再训练完成: %s → %s（应用反馈 %d 条，AUROC %s → %s）%s",
+        category, parent, version, len(effective_rows),
+        parent_metrics.get("image_AUROC"), metrics.get("image_AUROC"),
+        f" 警告: {warning}" if warning else "",
+    )
     return {"version": version, "metrics": metrics, "warning": warning, "preview": pv}
 
 
