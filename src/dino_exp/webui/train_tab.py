@@ -3,7 +3,6 @@ import dataclasses
 import gradio as gr
 
 from dino_exp.config import resolve_backbone, validate_image_size
-from dino_exp.errors import DinoError
 from dino_exp.train import train_model
 from dino_exp.webui.jobs import JobManager
 
@@ -26,16 +25,16 @@ def build(cfg, jm: JobManager):
         def start(c, bb, cs, sz):
             try:
                 validate_image_size(int(sz), resolve_backbone(bb).patch_size)
-            except DinoError as exc:
-                return None, f"错误: {exc}", ""
-            run_cfg = dataclasses.replace(
-                cfg, backbone=bb, coreset_sampling_ratio=float(cs), image_size=int(sz))
-            run_cfg.layers = list(run_cfg.backbone_spec.default_layers)
-            try:
+                run_cfg = dataclasses.replace(
+                    cfg, backbone=bb, coreset_sampling_ratio=float(cs), image_size=int(sz))
+                run_cfg.layers = list(run_cfg.backbone_spec.default_layers)
                 jid = jm.start("train", lambda log: train_model(c, run_cfg, log=log))
                 return jid, f"训练已启动: {jid}", ""
-            except DinoError as exc:
-                return None, f"错误: {exc}", ""
+            except Exception as exc:
+                from dino_exp.webui.common import error_pair
+
+                summary, detail = error_pair(exc)
+                return None, summary, detail
 
         def poll(jid):
             if not jid:

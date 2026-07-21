@@ -69,14 +69,16 @@ def dataset_download(cfg, category, force):
 @click.option("--category", required=True)
 @click.option("--label", type=click.Choice(["ok", "ng"]), required=True)
 @click.option("--defect-type", default=None)
+@click.option("--split", type=click.Choice(["train", "test", "auto"]), default="test", show_default=True,
+              help="仅 OK 图有效：train=训练集 train/good；test=测试集 test/good；auto=按文件名 8:2 自动分配")
 @click.argument("images", nargs=-1, required=True)
 @click.pass_obj
 @_err
-def dataset_import(cfg, category, label, defect_type, images):
+def dataset_import(cfg, category, label, defect_type, split, images):
     from dino_exp.datasets import import_images
 
-    paths = import_images(list(images), category, label, defect_type, cfg)
-    click.echo(f"已导入 {len(paths)} 张到 {paths[0].parent}")
+    paths = import_images(list(images), category, label, defect_type, cfg, split=split)
+    click.echo(f"已导入 {len(paths)} 张到 {paths[0].parent.parent.name}/{paths[0].parent.name} 等目录")
 
 
 @dataset.command("preview")

@@ -78,29 +78,52 @@ def list_datasets(cfg: Config) -> list[DatasetInfo]:
     return rows
 
 
-def import_images(srcs: list[str | Path], category: str, label: str, defect_type: str | None, cfg: Config) -> list[Path]:
+def import_images(
+    srcs: list[str | Path], category: str, label: str, defect_type: str | None, cfg: Config,
+    split: str = "test",
+) -> list[Path]:
+    """导入图片到规范目录。
+
+    split（仅 OK 图有效）："test" → test/good（默认，兼容旧行为）；
+    "train" → train/good（训练集）；"auto" → 按文件名确定性 8:2 分入 train/good 与
+    test/good（从零建数据集时一步获得训练集与阈值校准集）。NG 图始终进 test/<缺陷类型>。
+    """
     label = label.lower()
     if label not in {"ok", "ng"}:
         raise DinoError(f"label 只能是 ok/ng，得到 '{label}'。")
     if label == "ng" and not defect_type:
         raise DinoError("NG 图片必须指定缺陷类型名（--defect-type），如 scratch。")
-    dest_dir = cfg.data_root / category / "test" / ("good" if label == "ok" else defect_type)
+    if split not in {"train", "test", "auto"}:
+        raise DinoError(f"split 只能是 train/test/auto，得到 '{split}'。")
+
+    root = cfg.data_root / category
+
+    def dest_for(src: Path, train: bool) -> Path:
+        if label == "ng":
+            return root / "test" / defect_type / src.name
+        return root / ("train" if train else "test") / "good" / src.name
+
     # 先全量校验（格式 + 目标重名 + 批次内重名），再统一拷贝：失败零落盘
+    sorted_srcs = sorted((Path(s) for s in srcs), key=lambda p: p.name)
     pairs = []
-    for src in srcs:
-        src = Path(src)
+    n = len(sorted_srcs)
+    for i, src in enumerate(sorted_srcs):
         if src.suffix.lower() not in IMG_EXTS:
             raise DinoError(f"不支持的图片格式 '{src.suffix}'。支持: {sorted(IMG_EXTS)}")
-        dest = dest_dir / src.name
+        if label == "ok" and split == "auto":
+            train = i < max(1, int(n * 0.8))  # 前 80% 进 train/good，其余进 test/good
+        else:
+            train = split == "train"
+        dest = dest_for(src, train)
         if dest.exists():
             raise DinoError(f"目标已存在: {dest}。请重命名来源图片或先删除旧文件。")
         pairs.append((src, dest))
     names = [src.name for src, _ in pairs]
     if len(set(names)) != len(names):
         raise DinoError(f"批次内存在同名图片: {sorted(n for n in names if names.count(n) > 1)}。请重命名后重试。")
-    dest_dir.mkdir(parents=True, exist_ok=True)
     out = []
     for src, dest in pairs:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
         out.append(dest)
     return out
@@ -168,6 +191,19 @@ def test_images_with_labels(category: str, cfg: Config) -> list[tuple[Path, int,
 
 # 函数名以 test_ 开头，会被 pytest 在被 import 的测试模块中误收集；显式排除
 test_images_with_labels.__test__ = False
+
+
+def category_images(category: str, cfg: Config) -> list[tuple[str, Path]]:
+    """类别下全部图片的 (相对显示路径, 绝对路径) 列表，供 UI 选图（FR-3.2 选图验证）。
+
+    相对路径形如 train/good/t0.png、test/broken/b0.png，按字典序排序。
+    """
+    info = dataset_info(category, cfg)
+    out = []
+    for p in sorted(info.root.rglob("*")):
+        if p.suffix.lower() in IMG_EXTS and p.is_file():
+            out.append((p.relative_to(info.root).as_posix(), p))
+    return out
 
 
 def mask_path_for(image_path: Path, defect_type: str, info: DatasetInfo) -> Path | None:

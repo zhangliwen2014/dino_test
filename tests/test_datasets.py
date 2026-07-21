@@ -216,3 +216,49 @@ def test_import_mvtec_force_replaces_existing(tmp_path, monkeypatch):
     dest = ds.import_mvtec("bottle", cfg, force=True)
     assert not (dest / "stale").exists()  # 半成品已清除
     assert (dest / "train" / "good" / "t0.png").exists()
+
+
+def test_import_images_split_train(tmp_path):
+    cfg = Config(data_root=tmp_path / "data")
+    src = tmp_path / "in"
+    src.mkdir()
+    (src / "a.png").write_bytes(b"x")
+    paths = import_images([src / "a.png"], "c", "ok", None, cfg, split="train")
+    assert paths[0] == cfg.data_root / "c" / "train" / "good" / "a.png"
+    assert paths[0].exists()
+
+
+def test_import_images_split_auto_80_20(tmp_path):
+    cfg = Config(data_root=tmp_path / "data")
+    src = tmp_path / "in"
+    src.mkdir()
+    for i in range(10):
+        (src / f"{i:02d}.png").write_bytes(b"x")
+    paths = import_images(sorted(src.iterdir()), "c", "ok", None, cfg, split="auto")
+    train = [p for p in paths if p.parent.parent.name == "train"]
+    test = [p for p in paths if p.parent.parent.name == "test"]
+    assert len(train) == 8 and len(test) == 2  # 10 × 80% = 8
+    # 确定性：按文件名排序，前 8 张进 train
+    assert all(int(p.stem) < 8 for p in train)
+    assert all(int(p.stem) >= 8 for p in test)
+
+
+def test_import_images_split_invalid_raises(tmp_path):
+    cfg = Config(data_root=tmp_path / "data")
+    src = tmp_path / "a.png"
+    src.write_bytes(b"x")
+    with pytest.raises(DinoError, match="train/test/auto"):
+        import_images([src], "c", "ok", None, cfg, split="bad")
+
+
+def test_category_images_returns_relative_and_absolute(cfg):
+    from dino_exp.datasets import category_images
+
+    imgs = category_images("bottle", cfg)
+    rels = [rel for rel, _ in imgs]
+    assert "train/good/t0.png" in rels
+    assert "test/good/g0.png" in rels
+    assert "test/broken/b0.png" in rels
+    assert rels == sorted(rels)
+    abs_map = dict(imgs)
+    assert abs_map["test/good/g0.png"].is_absolute() or str(abs_map["test/good/g0.png"]).startswith(str(cfg.data_root))
