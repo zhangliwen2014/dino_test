@@ -23,6 +23,8 @@ def build(cfg, jm: JobManager):
         state_jid = gr.State(None)
 
         def start(c, bb, cs, sz):
+            if not c or not c.strip():
+                return None, "请先输入类别名（如 bottle）。", ""
             try:
                 validate_image_size(int(sz), resolve_backbone(bb).patch_size)
                 run_cfg = dataclasses.replace(

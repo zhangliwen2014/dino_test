@@ -84,6 +84,8 @@ def fix_category(category: str, cfg: Config) -> dict:
 
 
 def dataset_info(category: str, cfg: Config) -> DatasetInfo:
+    if not category or not category.strip():
+        raise DinoError("类别名不能为空。请输入类别名（如 bottle）后重试。")
     root = cfg.data_root / category
     train_good = _imgs(root / "train" / "good")
     if not train_good:

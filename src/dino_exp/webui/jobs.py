@@ -29,7 +29,11 @@ class JobManager:
             try:
                 result = fn(queue.put)
                 self._jobs[jid].update(state="done", result=result)
+            except DinoError as exc:
+                # 应用层错误：信息已含修复建议，直接展示，不刷堆栈
+                self._jobs[jid].update(state="error", error=str(exc))
             except Exception:
+                # 未知异常：保留堆栈便于排查
                 self._jobs[jid].update(state="error", error=traceback.format_exc(limit=5))
 
         threading.Thread(target=run, daemon=True).start()
