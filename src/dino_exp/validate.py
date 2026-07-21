@@ -73,7 +73,9 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
 
     model, threshold, version = load_model_for_version(category, version, cfg)
     info = dataset_info(category, cfg)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from dino_exp.config import resolve_device
+
+    device = resolve_device(cfg)
     model = model.to(device).eval()
     rows = []
     pixel_pairs = []

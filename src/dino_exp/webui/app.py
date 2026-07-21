@@ -2,7 +2,7 @@ import gradio as gr
 
 from dino_exp.config import Config
 from dino_exp.logs import get_logger, setup_logging
-from dino_exp.webui import dataset_tab, test_tab, train_tab, validate_tab
+from dino_exp.webui import dataset_tab, settings_tab, test_tab, train_tab, validate_tab
 from dino_exp.webui.jobs import JobManager
 
 
@@ -16,6 +16,7 @@ def launch(cfg: Config, port: int = 7860, host: str = "127.0.0.1") -> None:
         train_tab.build(cfg, jm)
         validate_tab.build(cfg)
         test_tab.build(cfg)
+        settings_tab.build(cfg)
     demo.queue(default_concurrency_limit=2).launch(server_name=host, server_port=port)
 
 

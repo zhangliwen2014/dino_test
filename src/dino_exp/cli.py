@@ -11,11 +11,15 @@ from dino_exp.logs import get_logger, setup_logging
 
 @click.group()
 @click.option("--config", "config_path", default=None, help="配置文件路径，默认 config/default.yaml")
+@click.option("--device", type=click.Choice(["auto", "cpu", "cuda"]), default=None,
+              help="运行设备（覆盖配置；默认 auto=自动选最强）")
 @click.pass_context
-def main(ctx, config_path):
+def main(ctx, config_path, device):
     """dino — DINO 无监督异常检测试验环境 CLI。"""
     setup_logging()
     ctx.obj = load_config(config_path)
+    if device:
+        ctx.obj.device = device
 
 
 def _err(fn):

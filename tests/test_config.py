@@ -157,3 +157,44 @@ def test_setup_logging_creates_file(tmp_path):
         h.flush()
     assert log_file.exists()
     assert "hello-log-test" in log_file.read_text(encoding="utf-8")
+
+
+def test_resolve_device_auto(monkeypatch):
+    import torch
+
+    from dino_exp.config import Config, resolve_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert resolve_device(Config(device="auto")) == "cuda"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert resolve_device(Config(device="auto")) == "cpu"
+
+
+def test_resolve_device_explicit(monkeypatch):
+    import torch
+
+    from dino_exp.config import Config, resolve_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    assert resolve_device(Config(device="cpu")) == "cpu"
+    assert resolve_device(Config(device="cuda")) == "cuda"
+
+
+def test_resolve_device_cuda_unavailable_raises(monkeypatch):
+    import torch
+
+    from dino_exp.config import Config, resolve_device
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    with pytest.raises(DinoError, match="CPU 版"):
+        resolve_device(Config(device="cuda"))
+
+
+def test_load_config_device_default_and_validate(tmp_path):
+    from dino_exp.config import Config, load_config
+
+    assert Config().device == "auto"
+    p = tmp_path / "c.yaml"
+    p.write_text("device: tpu\n", encoding="utf-8")
+    with pytest.raises(DinoError, match="auto/cpu/cuda"):
+        load_config(p)

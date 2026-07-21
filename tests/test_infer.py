@@ -61,6 +61,8 @@ def test_infer_batch_loads_model_once(monkeypatch):
 
     monkeypatch.setattr(infer_mod, "load_model_for_version", fake_load)
     monkeypatch.setattr(infer_mod, "_infer_loaded", lambda *a, **k: {"label": "OK"})
-    results = infer_mod.infer_batch(["a.png", "b.png", "c.png"], category="x", cfg=None)
+    from dino_exp.config import Config
+
+    results = infer_mod.infer_batch(["a.png", "b.png", "c.png"], category="x", cfg=Config())
     assert calls["n"] == 1
     assert results == [{"label": "OK"}] * 3

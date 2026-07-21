@@ -67,6 +67,7 @@ class Config:
     train_batch_size: int = 16
     eval_batch_size: int = 16
     num_workers: int = 0
+    device: str = "auto"  # auto（自动选最强）/ cpu / cuda
     data_root: Path = Path("data")
     models_root: Path = Path("models")
     feedback_root: Path = Path("feedback")
@@ -74,6 +75,26 @@ class Config:
     @property
     def backbone_spec(self) -> BackboneSpec:
         return resolve_backbone(self.backbone)
+
+
+DEVICE_CHOICES = {"auto", "cpu", "cuda"}
+
+
+def resolve_device(cfg: Config) -> str:
+    """解析生效设备：auto → 有 CUDA 用 cuda 否则 cpu；显式选择时校验可用性。"""
+    d = str(cfg.device).lower()
+    if d not in DEVICE_CHOICES:
+        raise DinoError(f"device 只能是 auto/cpu/cuda，得到 '{cfg.device}'。请修改 config/default.yaml 或 --device 参数。")
+    import torch
+
+    if d == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if d == "cuda" and not torch.cuda.is_available():
+        raise DinoError(
+            "已选择 CUDA 但当前 torch 不支持 CUDA（装的是 CPU 版）。"
+            "请改装 CUDA 版 torch（见 README §1），或将 device 改为 auto/cpu。"
+        )
+    return d
 
 
 def _validate_layers(layers: object, spec: BackboneSpec) -> None:
@@ -126,4 +147,6 @@ def load_config(path: str | Path | None = None) -> Config:
     validate_image_size(cfg.image_size, spec.patch_size)
     _validate_layers(cfg.layers, spec)
     _validate_numeric_ranges(cfg)
+    if str(cfg.device).lower() not in DEVICE_CHOICES:
+        raise DinoError(f"配置项 device={cfg.device!r} 非法，只能是 auto/cpu/cuda。")
     return cfg

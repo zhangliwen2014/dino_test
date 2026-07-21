@@ -115,11 +115,19 @@ def train_model(category: str, cfg: Config, log=None) -> dict:
 
     info = dataset_info(category, cfg)  # 结构校验前置（NFR-4）
     log(f"校验数据集... train/good={info.train_good} test/good={info.test_good}")
-    log("加载骨干与数据...")
+    from dino_exp.config import resolve_device
+
+    device = resolve_device(cfg)
+    if device == "cpu":
+        # Lightning 会自动占 GPU；强制 CPU 需在创建 Engine 前屏蔽 CUDA（进程级，本进程专用）
+        import os
+
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    log(f"加载骨干与数据...（设备: {device}）")
     datamodule = build_folder(category, cfg)
     model = build_model(cfg)
     engine = Engine(default_root_dir=str(Path("results") / category))
-    log("Engine.fit 建库中（CPU 可能需要几分钟）...")
+    log(f"Engine.fit 建库中（{device}{'，可能需要几分钟' if device == 'cpu' else ''}）...")
     engine.fit(model=model, datamodule=datamodule)
     log(f"coreset 完成，记忆库 {model.model.memory_bank.shape[0]} 条")
     # 阈值校准（FR-2.3）：OK 校准图 raw 分数 mean+3σ。

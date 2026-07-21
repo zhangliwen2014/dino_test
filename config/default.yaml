@@ -12,6 +12,7 @@ suspicious_score_factor: 3.0   # 护栏: OK 反馈 score > 此倍数×阈值 视
 train_batch_size: 16
 eval_batch_size: 16
 num_workers: 0                 # Windows 默认 0
+device: auto                   # 运行设备：auto(自动选最强) / cpu / cuda
 data_root: data
 models_root: models
 feedback_root: feedback

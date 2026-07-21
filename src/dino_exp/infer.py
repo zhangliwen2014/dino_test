@@ -9,7 +9,7 @@ import torch
 from PIL import Image
 from torchvision.transforms import v2 as T
 
-from dino_exp.config import Config
+from dino_exp.config import Config, resolve_device
 from dino_exp.errors import DinoError
 from dino_exp.models.dual_bank import DualBankPatchcore, load_banks
 from dino_exp.models.registry import Registry
@@ -76,9 +76,8 @@ def load_model_for_version(category: str, version: str | None, cfg: Config) -> t
     return model, threshold, version
 
 
-def _to_device(model: DualBankPatchcore) -> DualBankPatchcore:
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    return model.to(device)
+def _to_device(model: DualBankPatchcore, cfg: Config) -> DualBankPatchcore:
+    return model.to(resolve_device(cfg))
 
 
 def _infer_loaded(
@@ -120,12 +119,12 @@ def infer_image(
 ) -> dict:
     """单图推理 → {label, score, threshold, heatmap_path}（设计文档 §3.5）。"""
     model, threshold, version = load_model_for_version(category, version, cfg)
-    return _infer_loaded(_to_device(model), threshold, version, path, cfg, heatmap_dir)
+    return _infer_loaded(_to_device(model, cfg), threshold, version, path, cfg, heatmap_dir)
 
 
 def infer_batch(paths: list[str | Path], version: str | None = None, *, category: str, cfg: Config) -> list[dict]:
     model, threshold, version = load_model_for_version(category, version, cfg)  # 批量只加载一次
-    model = _to_device(model)
+    model = _to_device(model, cfg)
     return [_infer_loaded(model, threshold, version, p, cfg) for p in paths]
 
 

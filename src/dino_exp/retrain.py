@@ -60,7 +60,9 @@ def retrain(category: str, cfg: Config) -> dict:
     oks, ngs = partition_feedback(effective_rows)
 
     model, old_threshold, _ = load_model_for_version(category, parent, cfg)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from dino_exp.config import resolve_device
+
+    device = resolve_device(cfg)
     model = model.to(device).eval()
 
     for r in oks:  # OK 反馈 → 钉住并入正常库（不参与 coreset 淘汰/不计入上限）
