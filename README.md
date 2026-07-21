@@ -40,6 +40,20 @@ export HF_ENDPOINT=https://hf-mirror.com   # Git Bash
 
 > 下文命令均可用 `dino ...`（安装后的入口）或 `.venv/Scripts/python.exe -m dino_exp.cli ...` 两种形式。
 
+## 1.5 便捷脚本（推荐）
+
+`scripts/` 下提供三组开箱即用的脚本（`.bat` 供 Windows 双击/CMD，`.sh` 供 Git Bash；均自动使用 `.venv` 并预设 HF 镜像与 UTF-8 环境，`-h` 查看帮助）：
+
+| 脚本 | 用途 | 示例 |
+|---|---|---|
+| `scripts/run_ui.bat` / `.sh` | 启动 Web 界面 | `scripts\run_ui.bat --port 8080` |
+| `scripts/dino_cli.bat` / `.sh` | 命令行入口（透传所有 dino 命令） | `scripts\dino_cli.bat train --category bottle` |
+| `scripts/run_tests.bat` / `.sh` | 运行测试 | `scripts\run_tests.bat --slow` |
+
+- `run_tests`：无参数=快速单元测试（约 10 秒）；`--slow`=全链路冒烟（约 1 分钟）；`--all`=全部。
+- `dino_cli`：无参数或 `-h` 显示常用流程速查表 + 完整命令帮助。
+- `run_ui`：默认端口 7860，`--port` 可换；浏览器打开提示地址即可。
+
 ## 2. 快速开始（10 分钟跑通全流程）
 
 ```bash
@@ -217,6 +231,7 @@ feedback/    反馈数据（git 不跟踪）
 outputs/     热力图输出（git 不跟踪）
 results/     anomalib 训练日志（git 不跟踪）
 config/      配置文件
+scripts/     便捷脚本（run_ui / dino_cli / run_tests，.bat + .sh，-h 查看帮助）
 src/dino_exp/  源代码
 tests/       测试（pytest；-m slow 跑全链路冒烟，约 1 分钟）
 docs/        需求/设计/计划文档

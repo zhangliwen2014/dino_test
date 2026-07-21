@@ -259,12 +259,13 @@ def unstage(cfg, category, feedback_id):
 
 
 @main.command()
+@click.option("--port", default=7860, show_default=True, help="Web UI 监听端口")
 @click.pass_obj
 @_err
-def ui(cfg):
+def ui(cfg, port):
     from dino_exp.webui.app import launch
 
-    launch(cfg)
+    launch(cfg, port=port)
 
 
 if __name__ == "__main__":

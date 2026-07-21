@@ -16,6 +16,8 @@ python -m venv .venv && .venv/Scripts/python.exe -m pip install -e ".[dev]"
 .venv/Scripts/python.exe -m dino_exp.cli --help
 ```
 
+也可用 `scripts/` 下的便捷脚本（run_ui / dino_cli / run_tests，各含 .bat 与 .sh，`-h` 查看帮助）。注意：`.bat` 必须是 **GBK 编码 + CRLF 行尾**（cmd 对 UTF-8 中文与 LF 行尾的批处理会乱码误判），`.sh` 保持 UTF-8 + LF。
+
 - `slow` marker 的测试（真实骨干、真实 Engine.fit）默认被 conftest 钩子跳过，需 `-m slow` 显式运行。
 - 单元测试**不得**实例化真实骨干/下载权重：双库逻辑测纯函数，模型层用 `DualBankPatchcoreModel(layers=["layer1"], backbone="resnet18", pre_trained=False)` 小模型，编排层用 fake/monkeypatch。
 - DINOv2 权重已缓存于本机 HF cache；新环境下载需 `HF_ENDPOINT=https://hf-mirror.com`（huggingface.co 在本网络不可达）。

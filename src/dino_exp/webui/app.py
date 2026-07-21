@@ -5,7 +5,7 @@ from dino_exp.webui import dataset_tab, test_tab, train_tab, validate_tab
 from dino_exp.webui.jobs import JobManager
 
 
-def launch(cfg: Config) -> None:
+def launch(cfg: Config, port: int = 7860) -> None:
     jm = JobManager()
     with gr.Blocks(title="DINO 异常检测试验环境") as demo:
         gr.Markdown("# DINO 无监督异常检测试验环境")
@@ -13,10 +13,13 @@ def launch(cfg: Config) -> None:
         train_tab.build(cfg, jm)
         validate_tab.build(cfg)
         test_tab.build(cfg)
-    demo.queue(default_concurrency_limit=2).launch()
+    demo.queue(default_concurrency_limit=2).launch(server_port=port)
 
 
 if __name__ == "__main__":
+    import sys
+
     from dino_exp.config import load_config
 
-    launch(load_config())
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 7860
+    launch(load_config(), port=port)
