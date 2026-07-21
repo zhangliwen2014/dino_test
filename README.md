@@ -1,0 +1,227 @@
+# DINO 无监督异常检测试验环境 — 使用手册
+
+基于 DINOv2/DINOv3 特征的无监督工业异常检测：只用 OK（良品）图片训练，自动判定测试图 OK/NG 并输出异常热力图；识别错误时人工反馈，反馈累积后增量再训练，生成可回滚的新版本模型。
+
+- 引擎：anomalib 2.5.1（PatchCore + DINO 骨干，冻结权重，无需 GPU 训练）
+- 入口：CLI（`dino` 命令）+ Web UI（Gradio 四页签），功能一一对应
+- 平台：Windows（CPU 可跑全流程，有 NVIDIA GPU 自动加速）
+
+---
+
+## 1. 环境搭建
+
+```bash
+# 需要 Python 3.10–3.12
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -e ".[dev]"
+
+# 可选：NVIDIA GPU 用户改装 GPU 版 torch
+.venv/Scripts/python.exe -m pip install "anomalib[cu126]==2.5.1"
+
+# 可选：OpenVINO 推理加速
+.venv/Scripts/python.exe -m pip install "anomalib[openvino]==2.5.1"
+```
+
+**网络说明**：首次使用会从 HuggingFace 下载 DINOv2 权重（约 90MB，只下一次）。无法直连 huggingface.co 时先设置镜像：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com   # Git Bash
+# 或 Windows CMD: set HF_ENDPOINT=https://hf-mirror.com
+```
+
+**Windows 控制台中文乱码/编码报错**：建议设 `PYTHONUTF8=1`（GBK 终端下 rich 日志可能报编码错误）。
+
+验证安装：
+
+```bash
+.venv/Scripts/python.exe -m pytest tests/ -q      # 86 passed, 1 skipped
+.venv/Scripts/python.exe -m dino_exp.cli --help    # 或装好后直接用 dino --help
+```
+
+> 下文命令均可用 `dino ...`（安装后的入口）或 `.venv/Scripts/python.exe -m dino_exp.cli ...` 两种形式。
+
+## 2. 快速开始（10 分钟跑通全流程）
+
+```bash
+# 1. 准备数据：下载 MVTec AD 的 bottle 类别（或放自己的图，见 §3）
+dino dataset download --category bottle
+
+# 2. 训练基础模型（CPU 约 2 分钟；自动全量验证并输出指标）
+dino train --category bottle
+
+# 3. 查看验证结果（图片级 + 像素级指标）
+dino validate --category bottle --full
+
+# 4. 单图测试：判定 + 分数 + 热力图
+dino test --category bottle --image data/bottle/test/good/000.png
+
+# 5. 发现误判？反馈真实标签
+dino feedback --category bottle --image data/bottle/test/good/018.png --label ok
+
+# 6. 再训练（先预览暂存反馈，确认后生成新版本 v002）
+dino retrain --category bottle --yes
+
+# 7. 复测同一张图 → 判定应已翻转；查看/回滚版本
+dino test --category bottle --image data/bottle/test/good/018.png
+dino versions --category bottle
+dino rollback --category bottle v001
+```
+
+Web UI 方式：
+
+```bash
+dino ui   # 打开 http://127.0.0.1:7860
+```
+
+四个页签：**数据集**（列表/下载/导入）→ **训练**（选类别+骨干+参数，后台运行带日志）→ **验证**（全量指标+逐图结果+误判过滤 / 选图验证）→ **测试与反馈**（上传图片测试、标 OK/NG 反馈、预览/执行再训练、版本回滚）。
+
+## 3. 数据准备
+
+### 目录规范
+
+```
+data/<类别>/
+├── train/good/          # OK 训练图（必需，训练只用这些）
+├── test/good/           # OK 测试图（阈值校准用；缺失时自动从 train/good 切 20%）
+├── test/<缺陷类型>/      # NG 测试图（如 broken、scratch；可多个缺陷类型）
+└── mask/<缺陷类型>/      # 缺陷掩码（可选；有则输出像素级指标 pixel_AUROC/AUPRO）
+```
+
+### 导入自己的图片
+
+```bash
+# OK 图（进 test/good）
+dino dataset import --category 我的产品 --label ok 图1.jpg 图2.jpg
+
+# NG 图（必须指定缺陷类型名）
+dino dataset import --category 我的产品 --label ng --defect-type 划痕 ng1.jpg
+```
+
+UI 中：数据集页签 → 填类别名、选标签、（NG 填缺陷类型）、选文件 → 导入。
+
+### 查看数据集
+
+```bash
+dino dataset list                 # 所有类别概览（含"降级:无NG图"标记）
+dino dataset preview --category bottle   # 单类别详情（JSON）
+```
+
+> **提示**：只有 OK 图、没有 NG 测试图时为「降级」模式——可训练和逐图打分，但不输出 AUROC/F1 等聚合指标。
+
+## 4. 训练
+
+```bash
+dino train --category bottle                          # 默认配置
+dino train --category bottle --backbone dinov2_vitb14 # 换骨干
+dino train --category bottle --coreset 0.05 --image-size 518
+```
+
+**骨干别名**（`--backbone`）：
+
+| 别名 | 说明 |
+|---|---|
+| `dinov2_vits14`（默认） | DINOv2 ViT-S，最快，CPU 首选 |
+| `dinov2_vitb14` / `dinov2_vitl14` | DINOv2 ViT-B/L，更准更慢 |
+| `dinov3_vits16` / `dinov3_vitb16` / `dinov3_vitl16` | DINOv3（权重 gated，需 HF token，见 §8） |
+
+- `--image-size` 默认 224，必须是 patch 的整数倍（DINOv2=14，DINOv3=16），不满足会报错并给出建议值。
+- 每次训练生成一个新版本（v001、v002…），存于 `models/<类别>/vNNN/`（特征库+配置+指标+元数据）。
+- 阈值自动校准：OK 校准图分数的 mean+3σ，训练/判定/导出口径一致。
+- 训练完成自动跑全量验证，指标写入版本目录的 `metrics.json` 与 `validation.json`。
+
+## 5. 验证
+
+```bash
+dino validate --category bottle --full               # 全量：聚合指标 + 逐图结果
+dino validate --category bottle --full --errors-only # 只看误判（误报/漏报）
+dino validate --category bottle --version v001       # 指定版本
+dino validate --category bottle --images a.jpg --images b.jpg  # 选图验证（不出聚合指标）
+```
+
+指标说明：`image_AUROC`（≥0.90 为良好）、`image_AUPR`、`image_F1Score`；有 mask 时另有 `pixel_AUROC`/`pixel_AUPRO`（缺陷定位质量）。`threshold` 为当前判定线。
+
+## 6. 测试与反馈
+
+```bash
+# 测试（可多张）
+dino test --category bottle --image x.jpg
+# 输出：判定(OK/NG)  分数  阈值  热力图路径
+
+# 反馈：实际是 OK（误判为 NG 的误报）
+dino feedback --category bottle --image x.jpg --label ok
+
+# 反馈：实际是 NG（漏报），可带缺陷类型
+dino feedback --category bottle --image y.jpg --label ng --defect-type 划痕
+
+# 撤销某条暂存反馈
+dino unstage --category bottle <反馈id>
+```
+
+- 反馈进入**暂存区**，不影响当前模型，下次再训练时生效（保证测试结果可复现）。
+- UI 中更直观：测试与反馈页签 → 上传图片 → 测试 → 看热力图 → 选「实际标签」→ 提交反馈。
+
+## 7. 再训练与版本管理
+
+```bash
+dino retrain --category bottle          # 先显示预览（OK/NG 数量、可疑项、冲突），询问确认
+dino retrain --category bottle --yes    # 跳过确认
+```
+
+再训练做什么：
+
+- OK 反馈 → 特征**钉住**并入正常记忆库（不被淘汰，保证误报图翻转）
+- NG 反馈 → 高分 top-k patch 特征入**缺陷原型库**（此后相似缺陷会被加分检出）
+- 阈值自动重校准；生成新版本并自动全量验证，与父版本对比 AUROC
+- 若新 AUROC 下降超过 2 个点，打印告警并建议回滚
+
+**护栏**：OK 反馈但分数远超阈值（>3×）、或 NG 反馈但分数低于阈值（漏报型），预览中会标为「可疑」请二次确认——防止错误标签污染特征库。
+
+```bash
+dino versions --category bottle        # 版本列表（* 为当前）
+dino rollback --category bottle v001   # 回滚（只切指针，历史版本不删）
+dino export --category bottle          # 导出当前版本的 OpenVINO 快照（可选）
+```
+
+> OpenVINO 导出物是**版本快照**：特征库烘焙进模型文件，再训练出新版本后需重新 `dino export`。
+
+## 8. 常见问题
+
+**DINOv3 权重下载失败 / 401**
+Meta 官方 DINOv3 权重是 gated 的：先到 HuggingFace 对应页面同意条款，然后 `huggingface-cli login` 配置 token。默认骨干 DINOv2 无此限制。
+
+**huggingface.co 连不上**
+设置 `HF_ENDPOINT=https://hf-mirror.com` 后重试（见 §1）。
+
+**MVTec 下载太慢**
+anomalib 官方源是全量 4.9GB 压缩包。也可从镜像站下载单类别后按 §3 目录规范手动放置。
+
+**训练/推理慢**
+CPU + ViT-S 下：单图推理约 1-3 秒，bottle（250 图）建库约 2 分钟。有 NVIDIA GPU 会自动使用；或 `pip install "anomalib[openvino]==2.5.1"` 后 `dino export` 用 OpenVINO 加速。
+
+**Windows 终端乱码或 UnicodeEncodeError**
+设 `PYTHONUTF8=1` 后重跑。
+
+**再训练提示「暂存区为空」**
+先 `dino feedback ...` 添加反馈。反馈只在再训练时生效。
+
+## 9. 配置文件
+
+`config/default.yaml`（也可用 `dino --config 路径.yaml` 指定）：骨干、layers、image_size、coreset 采样率、融合权重 w（缺陷库加分强度，默认 0.5）、库上限倍数（默认 1.5×）、NG 反馈 top-k（默认 10）、阈值 sigma（默认 3.0）、可疑因子（默认 3.0）、各根目录。未知键或非法值会在启动时报错并给出修复建议。
+
+## 10. 目录说明
+
+```
+data/        数据集（git 不跟踪）
+models/      模型版本库 models/<类别>/vNNN/（git 不跟踪）
+feedback/    反馈数据（git 不跟踪）
+outputs/     热力图输出（git 不跟踪）
+results/     anomalib 训练日志（git 不跟踪）
+config/      配置文件
+src/dino_exp/  源代码
+tests/       测试（pytest；-m slow 跑全链路冒烟，约 1 分钟）
+docs/        需求/设计/计划文档
+```
+
+---
+
+*参考指标（本机 CPU 实测，MVTec bottle）：image_AUROC=1.0，pixel_AUROC≈0.95，误报反馈再训练后判定翻转且 AUROC 无下降。*
