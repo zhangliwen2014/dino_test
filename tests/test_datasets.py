@@ -265,3 +265,71 @@ def test_category_images_returns_relative_and_absolute(cfg):
     assert rels == sorted(rels)
     abs_map = dict(imgs)
     assert abs_map["test/good/g0.png"].is_absolute() or str(abs_map["test/good/g0.png"]).startswith(str(cfg.data_root))
+
+
+def test_delete_category(tmp_path):
+    from dino_exp.datasets import delete_category
+
+    cfg = Config(data_root=tmp_path / "data")
+    d = cfg.data_root / "c" / "train" / "good"
+    d.mkdir(parents=True)
+    (d / "a.png").write_bytes(b"x")
+    delete_category("c", cfg)
+    assert not (cfg.data_root / "c").exists()
+
+
+def test_delete_category_missing_raises(tmp_path):
+    from dino_exp.datasets import delete_category
+
+    cfg = Config(data_root=tmp_path / "data")
+    cfg.data_root.mkdir()
+    with pytest.raises(DinoError, match="不存在"):
+        delete_category("ghost", cfg)
+
+
+def test_delete_category_rejects_traversal(tmp_path):
+    from dino_exp.datasets import delete_category
+
+    cfg = Config(data_root=tmp_path / "data")
+    cfg.data_root.mkdir()
+    for bad in ["../x", "a/b", "a\\b", "", ".."]:
+        with pytest.raises(DinoError, match="非法类别名"):
+            delete_category(bad, cfg)
+
+
+def test_fix_category_moves_80_20(tmp_path):
+    from dino_exp.datasets import fix_category
+
+    cfg = Config(data_root=tmp_path / "data")
+    good = cfg.data_root / "c" / "test" / "good"
+    good.mkdir(parents=True)
+    for i in range(10):
+        (good / f"{i:02d}.png").write_bytes(b"x")
+    r = fix_category("c", cfg)
+    assert r["moved_to_train"] == 8 and r["kept_in_test"] == 2
+    assert len(list((cfg.data_root / "c" / "train" / "good").iterdir())) == 8
+    assert len(list(good.iterdir())) == 2
+    # 修复后类别完整
+    from dino_exp.datasets import dataset_info
+
+    assert dataset_info("c", cfg).train_good == 8
+
+
+def test_fix_category_already_complete(tmp_path):
+    from dino_exp.datasets import fix_category
+
+    cfg = Config(data_root=tmp_path / "data")
+    d = cfg.data_root / "c" / "train" / "good"
+    d.mkdir(parents=True)
+    (d / "a.png").write_bytes(b"x")
+    r = fix_category("c", cfg)
+    assert r["moved_to_train"] == 0 and "无需处理" in r["note"]
+
+
+def test_fix_category_no_images_raises(tmp_path):
+    from dino_exp.datasets import fix_category
+
+    cfg = Config(data_root=tmp_path / "data")
+    (cfg.data_root / "c").mkdir(parents=True)
+    with pytest.raises(DinoError, match="无法自动修复"):
+        fix_category("c", cfg)

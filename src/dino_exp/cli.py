@@ -84,6 +84,33 @@ def dataset_import(cfg, category, label, defect_type, split, images):
     click.echo(f"已导入 {len(paths)} 张到 {paths[0].parent.parent.name}/{paths[0].parent.name} 等目录")
 
 
+@dataset.command("fix")
+@click.option("--category", required=True)
+@click.pass_obj
+@_err
+def dataset_fix(cfg, category):
+    """自动修复不完整类别（test/good 的 OK 图按 8:2 整理出 train/good）。"""
+    from dino_exp.datasets import fix_category
+
+    click.echo(json.dumps(fix_category(category, cfg), ensure_ascii=False, indent=2))
+
+
+@dataset.command("delete")
+@click.option("--category", required=True)
+@click.option("--yes", is_flag=True, help="跳过确认直接删除")
+@click.pass_obj
+@_err
+def dataset_delete(cfg, category, yes):
+    """删除整个类别目录（不可恢复）。"""
+    from dino_exp.datasets import delete_category
+
+    if not yes and not click.confirm(f"确认删除类别 '{category}' 的全部图片？此操作不可恢复"):
+        click.echo("已取消。")
+        return
+    target = delete_category(category, cfg)
+    click.echo(f"已删除: {target}")
+
+
 @dataset.command("preview")
 @click.option("--category", required=True)
 @click.pass_obj

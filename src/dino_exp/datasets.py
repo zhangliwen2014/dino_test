@@ -39,6 +39,50 @@ def _imgs(d: Path) -> list[Path]:
     return sorted(p for p in d.rglob("*") if p.suffix.lower() in IMG_EXTS)
 
 
+def _check_category_name(category: str) -> None:
+    if not category or category in {".", ".."} or "/" in category or "\\" in category:
+        raise DinoError(f"非法类别名 '{category}'。类别名不能含路径分隔符。")
+
+
+def delete_category(category: str, cfg: Config) -> Path:
+    """删除整个类别目录（不可恢复）。仅允许删除 data_root 下的直接子目录。"""
+    _check_category_name(category)
+    target = cfg.data_root / category
+    if not target.is_dir():
+        raise DinoError(f"类别 '{category}' 不存在（{target}）。请用 `dino dataset list` 查看现有类别。")
+    shutil.rmtree(target)
+    return target
+
+
+def fix_category(category: str, cfg: Config) -> dict:
+    """自动修复不完整类别：缺 train/good 时，把 test/good 的图按 8:2 整理（80% 移到
+    train/good 作训练集，20% 留在 test/good 作阈值校准集）。返回处理摘要。
+
+    不可修复的情况（抛 DinoError）：类别不存在；test/good 也没有可用图片。
+    """
+    _check_category_name(category)
+    root = cfg.data_root / category
+    if not root.is_dir():
+        raise DinoError(f"类别 '{category}' 不存在（{root}）。请先导入图片。")
+    train_dir = root / "train" / "good"
+    if _imgs(train_dir):
+        return {"category": category, "moved_to_train": 0, "kept_in_test": 0,
+                "note": "train/good 已有图片，类别完整，无需处理。"}
+    test_good = _imgs(root / "test" / "good")
+    if not test_good:
+        raise DinoError(
+            f"类别 '{category}' 无法自动修复：train/good 与 test/good 都没有图片。"
+            "请先用 `dino dataset import --label ok --split auto` 导入 OK 图，或删除该类别。"
+        )
+    n_train = max(1, int(len(test_good) * 0.8))
+    to_train, kept = test_good[:n_train], test_good[n_train:]
+    train_dir.mkdir(parents=True, exist_ok=True)
+    for p in to_train:
+        p.rename(train_dir / p.name)
+    return {"category": category, "moved_to_train": len(to_train), "kept_in_test": len(kept),
+            "note": f"已按 8:2 整理：{len(to_train)} 张移入 train/good，{len(kept)} 张留在 test/good。"}
+
+
 def dataset_info(category: str, cfg: Config) -> DatasetInfo:
     root = cfg.data_root / category
     train_good = _imgs(root / "train" / "good")

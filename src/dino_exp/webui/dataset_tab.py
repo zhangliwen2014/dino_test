@@ -1,6 +1,14 @@
 import gradio as gr
 
-from dino_exp.datasets import category_images, dataset_info, import_images, import_mvtec, list_datasets
+from dino_exp.datasets import (
+    category_images,
+    dataset_info,
+    delete_category,
+    fix_category,
+    import_images,
+    import_mvtec,
+    list_datasets,
+)
 from dino_exp.webui.common import error_pair
 
 
@@ -28,16 +36,18 @@ def build(cfg):
         with gr.Row():
             cat_dl = gr.Textbox(label="MVTec 类别名", placeholder="bottle")
             btn_dl = gr.Button("下载 MVTec")
+            btn_dl_force = gr.Button("强制重新下载（删除旧目录）")
             dl_msg = gr.Textbox(label="结果", interactive=False)
 
-        def do_download(cat):
+        def do_download(cat, force):
             try:
-                return str(import_mvtec(cat, cfg)), ""
+                return str(import_mvtec(cat, cfg, force=force)), ""
             except Exception as exc:
                 summary, detail = error_pair(exc)
                 return summary, detail
 
-        btn_dl.click(do_download, cat_dl, [dl_msg, err_detail])
+        btn_dl.click(lambda c: do_download(c, False), cat_dl, [dl_msg, err_detail])
+        btn_dl_force.click(lambda c: do_download(c, True), cat_dl, [dl_msg, err_detail])
 
         with gr.Row():
             cat_im = gr.Textbox(label="类别名")
@@ -62,6 +72,50 @@ def build(cfg):
 
         btn_im.click(do_import, [cat_im, label_im, dt_im, split_im, files],
                      [im_msg, err_detail])
+
+        gr.Markdown("### 类别管理（修复/删除不完整类别）")
+        with gr.Row():
+            cat_mgr = gr.Dropdown(label="选择类别", choices=[], scale=2)
+            btn_mgr_refresh = gr.Button("刷新", scale=1)
+            btn_fix = gr.Button("自动修复（8:2 整理出训练集）", variant="primary", scale=2)
+        with gr.Row():
+            del_confirm = gr.Checkbox(label="我确认删除该类别全部数据（不可恢复）", value=False)
+            btn_del = gr.Button("删除该类别", variant="stop")
+        mgr_msg = gr.Textbox(label="结果", interactive=False)
+
+        def _categories():
+            if not cfg.data_root.is_dir():
+                return []
+            return sorted(d.name for d in cfg.data_root.iterdir() if d.is_dir())
+
+        btn_mgr_refresh.click(lambda: gr.update(choices=_categories()), None, cat_mgr)
+        gr.Timer(10.0).tick(lambda: gr.update(choices=_categories()), None, cat_mgr)
+
+        def do_fix(c):
+            if not c:
+                return "请先选择类别", ""
+            try:
+                r = fix_category(c, cfg)
+                return r["note"], ""
+            except Exception as exc:
+                summary, detail = error_pair(exc)
+                return summary, detail
+
+        def do_delete(c, confirmed):
+            if not c:
+                return "请先选择类别", ""
+            if not confirmed:
+                return "请先勾选「确认删除」再执行。", ""
+            try:
+                target = delete_category(c, cfg)
+                return f"已删除: {target}", ""
+            except Exception as exc:
+                summary, detail = error_pair(exc)
+                return summary, detail
+
+        btn_fix.click(do_fix, cat_mgr, [mgr_msg, err_detail])
+        btn_del.click(do_delete, [cat_mgr, del_confirm], [mgr_msg, err_detail])
+
         cat_info = gr.JSON(label="类别详情")
 
         def show_info(c):
