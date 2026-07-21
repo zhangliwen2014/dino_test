@@ -49,8 +49,11 @@ def dataset_list(cfg):
         return
     for info in rows:
         defects = ", ".join(f"{k}:{v}" for k, v in info.defect_types.items()) or "-"
-        click.echo(f"{info.category}\ttrain/good={info.train_good}\ttest/good={info.test_good}\t缺陷=[{defects}]"
-                   f"{'\t[降级:无NG图]' if info.degraded else ''}")
+        if info.error:
+            status = f"\t[不完整: {info.error}]"
+        else:
+            status = "\t[降级:无NG图]" if info.degraded else ""
+        click.echo(f"{info.category}\ttrain/good={info.train_good}\ttest/good={info.test_good}\t缺陷=[{defects}]{status}")
 
 
 @dataset.command("download")

@@ -6,13 +6,20 @@ from dino_exp.webui.common import error_pair
 
 def build(cfg):
     with gr.Tab("数据集"):
-        out = gr.Dataframe(headers=["类别", "train/good", "test/good", "缺陷类型", "降级"],
+        out = gr.Dataframe(headers=["类别", "train/good", "test/good", "缺陷类型", "状态"],
                            label="数据集列表")
 
         def refresh():
-            return [[i.category, i.train_good, i.test_good,
-                     ", ".join(f"{k}:{v}" for k, v in i.defect_types.items()) or "-",
-                     "是" if i.degraded else "否"] for i in list_datasets(cfg)]
+            rows = []
+            for i in list_datasets(cfg):
+                if i.error:
+                    status = f"不完整: {i.error}"
+                else:
+                    status = "降级:无NG图" if i.degraded else "正常"
+                rows.append([i.category, i.train_good, i.test_good,
+                             ", ".join(f"{k}:{v}" for k, v in i.defect_types.items()) or "-",
+                             status])
+            return rows
 
         err_detail_box = gr.Accordion("错误详情（点击展开堆栈）", open=False)
         with err_detail_box:

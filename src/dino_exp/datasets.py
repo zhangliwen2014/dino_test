@@ -21,6 +21,7 @@ class DatasetInfo:
     test_good: int
     defect_types: dict[str, int] = field(default_factory=dict)
     has_masks: bool = False
+    error: str | None = None  # 不完整类别的缺漏说明（如缺 train/good），完整类别为 None
 
     @property
     def has_test_good(self) -> bool:
@@ -65,6 +66,7 @@ def dataset_info(category: str, cfg: Config) -> DatasetInfo:
 
 
 def list_datasets(cfg: Config) -> list[DatasetInfo]:
+    """列出全部类别；不完整类别（如缺 train/good）也返回，error 字段带缺漏说明。"""
     if not cfg.data_root.is_dir():
         return []
     rows = []
@@ -74,7 +76,7 @@ def list_datasets(cfg: Config) -> list[DatasetInfo]:
         try:
             rows.append(dataset_info(d.name, cfg))
         except DinoError as e:
-            warnings.warn(f"跳过不完整类别 '{d.name}': {e}", stacklevel=2)
+            rows.append(DatasetInfo(category=d.name, root=d, train_good=0, test_good=0, error=str(e)))
     return rows
 
 

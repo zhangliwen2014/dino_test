@@ -153,12 +153,15 @@ def test_build_folder_split_ratio_when_no_test_good(tmp_path):
     )
 
 
-def test_list_datasets_skips_incomplete_category(cfg):
+def test_list_datasets_includes_incomplete_category_with_error(cfg):
     bad = cfg.data_root / "broken_cat"
     (bad / "test" / "good").mkdir(parents=True)
-    with pytest.warns(UserWarning, match="跳过不完整类别 'broken_cat'"):
-        rows = list_datasets(cfg)
-    assert [r.category for r in rows] == ["bottle"]
+    rows = list_datasets(cfg)
+    assert [r.category for r in rows] == ["bottle", "broken_cat"]
+    bad_row = rows[1]
+    assert bad_row.error is not None and "train/good" in bad_row.error
+    assert bad_row.train_good == 0
+    assert rows[0].error is None  # 完整类别无 error
 
 
 def test_build_folder_warns_when_mask_partial(cfg):
