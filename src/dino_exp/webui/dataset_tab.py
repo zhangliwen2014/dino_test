@@ -78,20 +78,46 @@ def build(cfg):
 
         gr.Markdown("### 图片浏览")
         with gr.Row():
-            btn_gallery = gr.Button("查看图片", variant="primary")
-            gallery_msg = gr.Textbox(label="说明", interactive=False)
-        gallery = gr.Gallery(label="类别图片（点击放大）", columns=6, height=360)
+            dir_sel = gr.Dropdown(label="子目录（train/good、test/good、缺陷类型）",
+                                  choices=[], value=None, scale=3)
+            btn_prev = gr.Button("← 上一页", scale=1)
+            btn_next = gr.Button("下一页 →", scale=1)
+        page_state = gr.State(0)
+        gallery = gr.Gallery(label="图片（点击放大查看）", columns=6, height=380,
+                             preview=True, interactive=False)
+        gallery_msg = gr.Textbox(label="说明", interactive=False)
 
-        def show_gallery(c):
+        PAGE_SIZE = 24
+
+        def _subdirs(c):
             if not c:
-                return [], "请先输入类别名"
+                return []
             try:
-                imgs = category_images(c, cfg)
+                rels = [rel.rsplit("/", 1)[0] for rel, _ in category_images(c, cfg)]
+                return sorted(set(rels))
+            except Exception:
+                return []
+
+        def _page(c, sub, page):
+            if not c or not sub:
+                return [], 0, "请先输入类别名并选择子目录"
+            try:
+                imgs = [p for rel, p in category_images(c, cfg)
+                        if rel.rsplit("/", 1)[0] == sub]
             except Exception as exc:
                 summary, _ = error_pair(exc)
-                return [], summary
-            shown = [str(p) for _, p in imgs[:60]]
-            note = f"共 {len(imgs)} 张" + ("，仅显示前 60 张" if len(imgs) > 60 else "")
-            return shown, note
+                return [], 0, summary
+            total = len(imgs)
+            pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+            page = max(0, min(page, pages - 1))
+            shown = [str(p) for p in imgs[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]]
+            return shown, page, f"{sub}：共 {total} 张，第 {page + 1}/{pages} 页"
 
-        btn_gallery.click(show_gallery, cat_im, [gallery, gallery_msg])
+        cat_im.change(lambda c: gr.update(choices=_subdirs(c), value=None),
+                      cat_im, dir_sel)
+        dir_sel.change(lambda c, s: _page(c, s, 0), [cat_im, dir_sel],
+                       [gallery, page_state, gallery_msg])
+        btn_prev.click(lambda c, s, p: _page(c, s, p - 1), [cat_im, dir_sel, page_state],
+                       [gallery, page_state, gallery_msg])
+        btn_next.click(lambda c, s, p: _page(c, s, p + 1), [cat_im, dir_sel, page_state],
+                       [gallery, page_state, gallery_msg])
