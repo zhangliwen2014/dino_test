@@ -19,11 +19,31 @@ def build(cfg):
             err_detail = gr.Textbox(interactive=False, lines=8)
 
         with gr.Tabs():
-            # ---------------- 概览与浏览（主从联动：选类别 → 选子目录 → 看图片） ----------------
+            # ---------------- 概览与浏览（侧栏主从布局：左选类别/子目录，右看图片） ----------------
             with gr.Tab("概览与浏览"):
-                out = gr.Dataframe(headers=["类别", "train/good", "test/good", "缺陷类型", "状态"],
-                                   label="数据集列表（点击行选择类别）",
-                                   interactive=False)
+                page_state = gr.State(0)
+                cur_cat = gr.State("")
+
+                with gr.Row():
+                    # 侧栏：类别列表 + 子目录
+                    with gr.Column(scale=1, min_width=300):
+                        out = gr.Dataframe(
+                            headers=["类别", "train", "test", "状态"],
+                            label="类别（点击行选择）",
+                            interactive=False, max_height=330, wrap=True)
+                        dir_sel = gr.Radio(label="子目录", choices=[], value=None)
+                        with gr.Row():
+                            btn_prev = gr.Button("← 上一页")
+                            btn_next = gr.Button("下一页 →")
+
+                    # 主可视区：面包屑 + 画廊
+                    with gr.Column(scale=3):
+                        crumb = gr.Markdown("未选择类别——点击左侧列表中的一行")
+                        gallery = gr.Gallery(label="图片（点击放大查看）", columns=5,
+                                             height=520, preview=True, interactive=False)
+                        gallery_msg = gr.Textbox(label="说明", interactive=False)
+                        with gr.Accordion("类别详情", open=False):
+                            cat_info = gr.JSON()
 
                 def refresh():
                     rows = []
@@ -32,27 +52,12 @@ def build(cfg):
                             status = f"不完整: {i.error}"
                         else:
                             status = "降级:无NG图" if i.degraded else "正常"
-                        rows.append([i.category, i.train_good, i.test_good,
-                                     ", ".join(f"{k}:{v}" for k, v in i.defect_types.items()) or "-",
-                                     status])
+                        rows.append([i.category, i.train_good, i.test_good, status])
                     return rows
 
                 gr.Timer(5.0).tick(refresh, outputs=out)
 
-                gr.Markdown("### 浏览选中类别")
-                crumb = gr.Markdown("未选择类别——点击上方列表中的一行")
-                dir_sel = gr.Radio(label="子目录", choices=[], value=None)
-                with gr.Row():
-                    btn_prev = gr.Button("← 上一页")
-                    btn_next = gr.Button("下一页 →")
-                page_state = gr.State(0)
-                cur_cat = gr.State("")
-                gallery = gr.Gallery(label="图片（点击放大查看）", columns=6, height=380,
-                                     preview=True, interactive=False)
-                gallery_msg = gr.Textbox(label="说明", interactive=False)
-                cat_info = gr.JSON(label="类别详情")
-
-                PAGE_SIZE = 24
+                PAGE_SIZE = 20
 
                 def _subdirs(c):
                     if not c:
