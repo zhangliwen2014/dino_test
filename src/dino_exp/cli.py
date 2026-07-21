@@ -260,12 +260,14 @@ def unstage(cfg, category, feedback_id):
 
 @main.command()
 @click.option("--port", default=7860, show_default=True, help="Web UI 监听端口")
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="绑定地址；0.0.0.0 允许局域网访问（无鉴权，仅在可信网络使用）")
 @click.pass_obj
 @_err
-def ui(cfg, port):
+def ui(cfg, port, host):
     from dino_exp.webui.app import launch
 
-    launch(cfg, port=port)
+    launch(cfg, port=port, host=host)
 
 
 if __name__ == "__main__":
