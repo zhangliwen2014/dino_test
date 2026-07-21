@@ -126,11 +126,35 @@ def list_datasets(cfg: Config) -> list[DatasetInfo]:
     return rows
 
 
+def _expand_inputs(srcs: list[str | Path]) -> list[Path]:
+    """展开输入：.zip 解压后取其中的图片；普通图片原样保留。返回展开后的图片路径列表。"""
+    import tempfile
+    import zipfile
+
+    out: list[Path] = []
+    for s in srcs:
+        p = Path(s)
+        if p.suffix.lower() == ".zip":
+            if not zipfile.is_zipfile(p):
+                raise DinoError(f"'{p.name}' 不是有效的 zip 压缩包。请重新打包后上传。")
+            tmp = tempfile.mkdtemp(prefix="dino_zip_")
+            with zipfile.ZipFile(p) as zf:
+                zf.extractall(tmp)
+            imgs = [f for f in Path(tmp).rglob("*")
+                    if f.is_file() and f.suffix.lower() in IMG_EXTS and not f.name.startswith(".")]
+            if not imgs:
+                raise DinoError(f"压缩包 '{p.name}' 中没有图片。支持: {sorted(IMG_EXTS)}")
+            out.extend(imgs)
+        else:
+            out.append(p)
+    return out
+
+
 def import_images(
     srcs: list[str | Path], category: str, label: str, defect_type: str | None, cfg: Config,
     split: str = "test",
 ) -> list[Path]:
-    """导入图片到规范目录。
+    """导入图片到规范目录（支持单图与 .zip 压缩包，目录结构由服务端管理）。
 
     split（仅 OK 图有效）："test" → test/good（默认，兼容旧行为）；
     "train" → train/good（训练集）；"auto" → 按文件名确定性 8:2 分入 train/good 与
@@ -152,7 +176,9 @@ def import_images(
         return root / ("train" if train else "test") / "good" / src.name
 
     # 先全量校验（格式 + 目标重名 + 批次内重名），再统一拷贝：失败零落盘
-    sorted_srcs = sorted((Path(s) for s in srcs), key=lambda p: p.name)
+    sorted_srcs = sorted(_expand_inputs(srcs), key=lambda p: p.name)
+    if not sorted_srcs:
+        raise DinoError("没有可导入的图片。请选择图片文件或含图片的 zip 压缩包。")
     pairs = []
     n = len(sorted_srcs)
     for i, src in enumerate(sorted_srcs):

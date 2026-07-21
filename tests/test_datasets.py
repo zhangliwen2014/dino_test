@@ -333,3 +333,37 @@ def test_fix_category_no_images_raises(tmp_path):
     (cfg.data_root / "c").mkdir(parents=True)
     with pytest.raises(DinoError, match="无法自动修复"):
         fix_category("c", cfg)
+
+
+def test_import_images_from_zip_auto_split(tmp_path):
+    import zipfile
+
+    cfg = Config(data_root=tmp_path / "data")
+    zpath = tmp_path / "imgs.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        for i in range(10):
+            zf.writestr(f"sub/dir/{i:02d}.png", b"x")  # zip 内含嵌套目录
+        zf.writestr("readme.txt", "not an image")  # 非图片应被忽略
+    paths = import_images([zpath], "c", "ok", None, cfg, split="auto")
+    train = [p for p in paths if p.parent.parent.name == "train"]
+    test = [p for p in paths if p.parent.parent.name == "test"]
+    assert len(paths) == 10 and len(train) == 8 and len(test) == 2
+
+
+def test_import_images_zip_no_images_raises(tmp_path):
+    import zipfile
+
+    cfg = Config(data_root=tmp_path / "data")
+    zpath = tmp_path / "empty.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        zf.writestr("a.txt", "x")
+    with pytest.raises(DinoError, match="没有图片"):
+        import_images([zpath], "c", "ok", None, cfg)
+
+
+def test_import_images_invalid_zip_raises(tmp_path):
+    cfg = Config(data_root=tmp_path / "data")
+    bad = tmp_path / "bad.zip"
+    bad.write_bytes(b"not a zip")
+    with pytest.raises(DinoError, match="不是有效的 zip"):
+        import_images([bad], "c", "ok", None, cfg)
