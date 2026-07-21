@@ -80,6 +80,14 @@ def _to_device(model: DualBankPatchcore, cfg: Config) -> DualBankPatchcore:
     return model.to(resolve_device(cfg))
 
 
+def _imwrite_unicode(path: Path, img) -> None:
+    """cv2.imwrite 在 Windows 不支持非 ASCII 路径（文件名会变乱码）；改用 imencode + 字节写。"""
+    ok, buf = cv2.imencode(".png", img)
+    if not ok:
+        raise DinoError(f"热力图编码失败: {path}")
+    Path(path).write_bytes(buf.tobytes())
+
+
 def _infer_loaded(
     model: DualBankPatchcore,
     threshold: float,
@@ -100,7 +108,7 @@ def _infer_loaded(
     hdir = Path(heatmap_dir)
     hdir.mkdir(parents=True, exist_ok=True)
     heatmap_path = hdir / _heatmap_name(path, version)
-    cv2.imwrite(str(heatmap_path), heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
+    _imwrite_unicode(heatmap_path, heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
     return {
         "label": decide_label(score, threshold),
         "score": score,

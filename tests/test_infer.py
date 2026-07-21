@@ -66,3 +66,15 @@ def test_infer_batch_loads_model_once(monkeypatch):
     results = infer_mod.infer_batch(["a.png", "b.png", "c.png"], category="x", cfg=Config())
     assert calls["n"] == 1
     assert results == [{"label": "OK"}] * 3
+
+
+def test_imwrite_unicode_path(tmp_path):
+    """中文路径写热力图不产生乱码文件名（cv2.imwrite 在 Windows 的已知缺陷）。"""
+    import numpy as np
+
+    from dino_exp.infer import _imwrite_unicode
+
+    target = tmp_path / "热力图_测试.png"
+    _imwrite_unicode(target, np.zeros((8, 8, 3), dtype=np.uint8))
+    assert target.exists()
+    assert target.read_bytes()[:4] == b"\x89PNG"
