@@ -86,6 +86,68 @@ def delete_category(category: str, cfg: Config) -> Path:
     return target
 
 
+def add_defect_type(category: str, name: str, cfg: Config) -> Path:
+    """新增缺陷类型目录（作为 NG 图/移动归类的目标）。"""
+    _check_category_name(category)
+    name = (name or "").strip()
+    if not name or "/" in name or "\\" in name or name in {".", "..", "good"}:
+        raise DinoError(f"非法缺陷类型名 '{name}'。不能含路径分隔符，且不能叫 good。")
+    d = cfg.data_root / category / "test" / name
+    if d.exists():
+        raise DinoError(f"缺陷类型 '{name}' 已存在（{d}）。")
+    d.mkdir(parents=True)
+    invalidate_dataset_cache()
+    return d
+
+
+def rename_defect_type(category: str, old: str, new: str, cfg: Config) -> Path:
+    """缺陷类型改名（目录整体重命名，图片随之迁移）。"""
+    _check_category_name(category)
+    new = (new or "").strip()
+    if not new or "/" in new or "\\" in new or new in {".", "..", "good"}:
+        raise DinoError(f"非法缺陷类型名 '{new}'。不能含路径分隔符，且不能叫 good。")
+    src = cfg.data_root / category / "test" / old
+    if not src.is_dir():
+        raise DinoError(f"缺陷类型 '{old}' 不存在（{src}）。可用类型见数据集列表。")
+    dest = cfg.data_root / category / "test" / new
+    if dest.exists():
+        raise DinoError(f"缺陷类型 '{new}' 已存在，请换个名字。")
+    src.rename(dest)
+    invalidate_dataset_cache()
+    return dest
+
+
+def move_image(category: str, rel_path: str, target: str, defect_type: str | None, cfg: Config) -> Path:
+    """把类别内的一张图片移动到新归类（纠错：OK/NG 放错、缺陷类型归错）。
+
+    rel_path: 类别内的相对路径（如 test/good/a.png）。
+    target: "test_good"（OK 测试集）/ "train_good"（OK 训练集）/ "ng"（NG，defect_type 缺省 unknown）。
+    """
+    _check_category_name(category)
+    root = cfg.data_root / category
+    src = (root / rel_path).resolve()
+    root_resolved = str(root.resolve())
+    if not str(src).startswith(root_resolved + "\\") and str(src) != root_resolved:
+        raise DinoError(f"非法路径: {rel_path}。必须是类别目录内的相对路径。")
+    if not src.is_file():
+        raise DinoError(f"图片不存在: {root / rel_path}。请刷新图片列表后重试。")
+    if target not in {"test_good", "train_good", "ng"}:
+        raise DinoError(f"target 只能是 test_good/train_good/ng，得到 '{target}'。")
+    if target == "ng":
+        dest_dir = root / "test" / (defect_type or "unknown")
+    else:
+        dest_dir = root / ("test" if target == "test_good" else "train") / "good"
+    if src.parent == dest_dir:
+        raise DinoError(f"图片已在该归类下（{src.parent.relative_to(root)}），无需调整。")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / src.name
+    if dest.exists():
+        raise DinoError(f"目标已存在: {dest}。请先删除或重命名同名文件。")
+    src.rename(dest)
+    invalidate_dataset_cache()
+    return dest
+
+
 def fix_category(category: str, cfg: Config) -> dict:
     """自动修复不完整类别：缺 train/good 时，把 test/good 的图按 8:2 整理（80% 移到
     train/good 作训练集，20% 留在 test/good 作阈值校准集）。返回处理摘要。

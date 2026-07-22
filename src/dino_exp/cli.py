@@ -105,6 +105,47 @@ def dataset_fix(cfg, category):
     click.echo(json.dumps(fix_category(category, cfg), ensure_ascii=False, indent=2))
 
 
+@dataset.command("move")
+@click.option("--category", required=True)
+@click.option("--image", "rel_path", required=True, help="类别内相对路径，如 test/good/a.png")
+@click.option("--to", "target", type=click.Choice(["test_good", "train_good", "ng"]), required=True,
+              help="目标归类：test_good=OK测试集 / train_good=OK训练集 / ng=NG")
+@click.option("--defect-type", default=None, help="target=ng 时的缺陷类型（默认 unknown）")
+@click.pass_obj
+@_err
+def dataset_move(cfg, category, rel_path, target, defect_type):
+    """移动图片到新归类（纠错：OK/NG 放错、缺陷类型归错）。"""
+    from dino_exp.datasets import move_image
+
+    dest = move_image(category, rel_path, target, defect_type, cfg)
+    click.echo(f"已移动到: {dest}")
+
+
+@dataset.command("defect-add")
+@click.option("--category", required=True)
+@click.argument("name")
+@click.pass_obj
+@_err
+def dataset_defect_add(cfg, category, name):
+    """新增缺陷类型目录。"""
+    from dino_exp.datasets import add_defect_type
+
+    click.echo(f"已创建: {add_defect_type(category, name, cfg)}")
+
+
+@dataset.command("defect-rename")
+@click.option("--category", required=True)
+@click.argument("old")
+@click.argument("new")
+@click.pass_obj
+@_err
+def dataset_defect_rename(cfg, category, old, new):
+    """缺陷类型改名（目录重命名，图片随之迁移）。"""
+    from dino_exp.datasets import rename_defect_type
+
+    click.echo(f"已改名为: {rename_defect_type(category, old, new, cfg)}")
+
+
 @dataset.command("delete")
 @click.option("--category", required=True)
 @click.option("--yes", is_flag=True, help="跳过确认直接删除")

@@ -380,3 +380,66 @@ def test_category_cache_invalidation(tmp_path):
     src.write_bytes(b"x")
     import_images([src], "newcat", "ok", None, cfg, split="train")
     assert "newcat" in dataset_categories(cfg)
+
+
+def test_move_image_ok_to_ng_and_back(tmp_path):
+    from dino_exp.datasets import move_image
+
+    cfg = Config(data_root=tmp_path / "data")
+    d = cfg.data_root / "c" / "test" / "good"
+    d.mkdir(parents=True)
+    (d / "a.png").write_bytes(b"x")
+    # OK → NG(默认 unknown)
+    dest = move_image("c", "test/good/a.png", "ng", None, cfg)
+    assert dest == cfg.data_root / "c" / "test" / "unknown" / "a.png"
+    assert dest.exists() and not (d / "a.png").exists()
+    # NG → OK 训练集（指定原缺陷目录）
+    dest = move_image("c", "test/unknown/a.png", "train_good", None, cfg)
+    assert dest == cfg.data_root / "c" / "train" / "good" / "a.png"
+    assert dest.exists()
+
+
+def test_move_image_to_specific_defect_type(tmp_path):
+    from dino_exp.datasets import move_image
+
+    cfg = Config(data_root=tmp_path / "data")
+    d = cfg.data_root / "c" / "test" / "scratch"
+    d.mkdir(parents=True)
+    (d / "b.png").write_bytes(b"x")
+    dest = move_image("c", "test/scratch/b.png", "ng", "缺粒", cfg)
+    assert dest.parent.name == "缺粒"
+
+
+def test_move_image_errors(tmp_path):
+    from dino_exp.datasets import move_image
+
+    cfg = Config(data_root=tmp_path / "data")
+    d = cfg.data_root / "c" / "test" / "good"
+    d.mkdir(parents=True)
+    (d / "a.png").write_bytes(b"x")
+    # 已在目标归类
+    with pytest.raises(DinoError, match="无需调整"):
+        move_image("c", "test/good/a.png", "test_good", None, cfg)
+    # 不存在
+    with pytest.raises(DinoError, match="不存在"):
+        move_image("c", "test/good/ghost.png", "ng", None, cfg)
+    # 路径穿越
+    with pytest.raises(DinoError, match="非法路径"):
+        move_image("c", "../outside.png", "ng", None, cfg)
+
+
+def test_add_and_rename_defect_type(tmp_path):
+    from dino_exp.datasets import add_defect_type, rename_defect_type
+
+    cfg = Config(data_root=tmp_path / "data")
+    (cfg.data_root / "c" / "test").mkdir(parents=True)
+    d = add_defect_type("c", "划痕", cfg)
+    assert d.is_dir()
+    with pytest.raises(DinoError, match="已存在"):
+        add_defect_type("c", "划痕", cfg)
+    with pytest.raises(DinoError, match="非法"):
+        add_defect_type("c", "good", cfg)
+    d2 = rename_defect_type("c", "划痕", "缺粒", cfg)
+    assert d2.name == "缺粒" and not d.exists()
+    with pytest.raises(DinoError, match="不存在"):
+        rename_defect_type("c", "划痕", "x", cfg)

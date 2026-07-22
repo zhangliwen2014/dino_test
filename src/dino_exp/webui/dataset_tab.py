@@ -1,6 +1,7 @@
 import gradio as gr
 
 from dino_exp.datasets import (
+    add_defect_type,
     category_images,
     dataset_info,
     delete_category,
@@ -8,6 +9,7 @@ from dino_exp.datasets import (
     import_images,
     import_mvtec,
     list_datasets,
+    rename_defect_type,
 )
 from dino_exp.webui.common import category_choices, category_dropdown, error_pair
 
@@ -22,6 +24,8 @@ def build(cfg):
         with gr.Tab("概览与浏览"):
             page_state = gr.State(0)
             cur_cat = gr.State("")
+            shown_state = gr.State([])   # 当前页图片绝对路径列表（供选中映射）
+            sel_path = gr.State("")      # 画廊中选中的图片绝对路径
 
             with gr.Row():
                 # 侧栏：类别列表 + 子目录
@@ -38,9 +42,19 @@ def build(cfg):
                 # 主可视区：面包屑 + 画廊
                 with gr.Column(scale=3):
                     crumb = gr.Markdown("未选择类别——点击左侧列表中的一行")
-                    gallery = gr.Gallery(label="图片（点击放大查看）", columns=5,
-                                         height=520, preview=True, interactive=False)
+                    gallery = gr.Gallery(label="图片（点击选择/放大）", columns=5,
+                                         height=460, preview=True, interactive=False)
                     gallery_msg = gr.Textbox(label="说明", interactive=False)
+                    with gr.Accordion("调整选中图片的归类（纠错：OK/NG 放错、缺陷类型归错）", open=False):
+                        sel_info = gr.Textbox(label="当前选中", interactive=False)
+                        reclass_target = gr.Dropdown(
+                            [("OK（测试集 test/good）", "test_good"),
+                             ("OK（训练集 train/good）", "train_good"),
+                             ("NG（缺陷图）", "ng")],
+                            value="test_good", label="移动到")
+                        reclass_dt = gr.Textbox(label="缺陷类型（选 NG 时生效，默认 unknown）")
+                        reclass_btn = gr.Button("执行移动", variant="primary")
+                        reclass_msg = gr.Textbox(label="结果", interactive=False)
                     with gr.Accordion("类别详情", open=False):
                         cat_info = gr.JSON()
 
@@ -82,6 +96,10 @@ def build(cfg):
                 shown = [str(p) for p in imgs[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]]
                 return shown, page, f"{c} / {sub}：共 {total} 张，第 {page + 1}/{pages} 页"
 
+            def _page4(c, sub, page):
+                shown, p, msg = _page(c, sub, page)
+                return shown, p, msg, shown  # shown 同时给画廊与 shown_state
+
             def _info(c):
                 try:
                     return dataset_info(c, cfg).__dict__
@@ -94,24 +112,70 @@ def build(cfg):
                 rows = refresh()
                 idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
                 if idx is None or idx >= len(rows):
-                    return "未选择类别", gr.update(), [], 0, "", "", {}
+                    return "未选择类别", gr.update(), [], 0, "", "", {}, []
                 c = rows[idx][0]
                 subs = _subdirs(c)
                 first = subs[0] if subs else None
                 shown, page, msg = _page(c, first, 0)
                 return (f"**{c}**" + (f" / {first}" if first else ""),
                         gr.update(choices=subs, value=first),
-                        shown, page, msg, c, _info(c))
+                        shown, page, msg, c, _info(c), shown)
 
             out.select(on_row_select, None,
-                       [crumb, dir_sel, gallery, page_state, gallery_msg, cur_cat, cat_info])
+                       [crumb, dir_sel, gallery, page_state, gallery_msg, cur_cat, cat_info,
+                        shown_state])
 
-            dir_sel.change(lambda c, s: _page(c, s, 0), [cur_cat, dir_sel],
-                           [gallery, page_state, gallery_msg])
-            btn_prev.click(lambda c, s, p: _page(c, s, p - 1), [cur_cat, dir_sel, page_state],
-                           [gallery, page_state, gallery_msg])
-            btn_next.click(lambda c, s, p: _page(c, s, p + 1), [cur_cat, dir_sel, page_state],
-                           [gallery, page_state, gallery_msg])
+            dir_sel.change(lambda c, s: _page4(c, s, 0), [cur_cat, dir_sel],
+                           [gallery, page_state, gallery_msg, shown_state])
+            btn_prev.click(lambda c, s, p: _page4(c, s, p - 1), [cur_cat, dir_sel, page_state],
+                           [gallery, page_state, gallery_msg, shown_state])
+            btn_next.click(lambda c, s, p: _page4(c, s, p + 1), [cur_cat, dir_sel, page_state],
+                           [gallery, page_state, gallery_msg, shown_state])
+
+            def on_gallery_select(shown, evt: gr.SelectData):
+                idx = evt.index
+                if idx is None or idx >= len(shown):
+                    return "未选中图片", ""
+                from pathlib import Path as _P
+
+                abs_p = shown[idx]
+                rel = _P(abs_p).relative_to(cfg.data_root / cur_cat.value if False else abs_p)
+                return abs_p, abs_p
+
+            def on_gallery_select2(shown, cat, evt: gr.SelectData):
+                idx = evt.index
+                if idx is None or idx >= len(shown):
+                    return "未选中图片", ""
+                from pathlib import Path as _P
+
+                abs_p = shown[idx]
+                try:
+                    rel = str(_P(abs_p).relative_to(cfg.data_root / cat))
+                except ValueError:
+                    rel = abs_p
+                return rel, abs_p
+
+            gallery.select(on_gallery_select2, [shown_state, cur_cat], [sel_info, sel_path])
+
+            def do_reclass(cat, abs_p, target, dt, sub, page):
+                if not cat or not abs_p:
+                    return "请先在画廊中点击选中一张图片。", "", gr.update(), gr.update(), gr.update()
+                from pathlib import Path as _P
+
+                from dino_exp.datasets import move_image
+
+                try:
+                    rel = str(_P(abs_p).relative_to(cfg.data_root / cat))
+                    dest = move_image(cat, rel, target, dt or None, cfg)
+                except Exception as exc:
+                    summary, detail = error_pair(exc)
+                    return summary, detail, gr.update(), gr.update(), gr.update()
+                shown, p, msg, shown2 = _page4(cat, sub, page)
+                return f"已移动到: {dest}", "", shown, msg, shown2
+
+            reclass_btn.click(do_reclass,
+                              [cur_cat, sel_path, reclass_target, reclass_dt, dir_sel, page_state],
+                              [reclass_msg, err_detail, gallery, gallery_msg, shown_state])
 
         # ---------------- 导入与下载 ----------------
         with gr.Tab("导入与下载"):
@@ -205,3 +269,45 @@ def build(cfg):
 
             btn_fix.click(do_fix, cat_mgr, [mgr_msg, err_detail])
             btn_del.click(do_delete, [cat_mgr, del_confirm], [mgr_msg, err_detail])
+
+            gr.Markdown("### 缺陷类型维护（新增/改名）")
+            with gr.Row():
+                dt_cat = gr.Dropdown(label="类别", choices=[], scale=2)
+                dt_exist = gr.Dropdown(label="现有缺陷类型", choices=[], scale=2)
+            with gr.Row():
+                dt_new = gr.Textbox(label="缺陷类型名", placeholder="如：划痕、缺粒")
+                btn_dt_add = gr.Button("新增类型")
+                btn_dt_rename = gr.Button("改名为输入的名称", variant="primary")
+            dt_msg = gr.Textbox(label="结果", interactive=False)
+
+            def _defect_types(c):
+                if not c:
+                    return gr.update(choices=[])
+                try:
+                    return gr.update(choices=sorted(dataset_info(c, cfg).defect_types))
+                except Exception:
+                    return gr.update(choices=[])
+
+            dt_cat.change(_defect_types, dt_cat, dt_exist)
+            gr.Timer(10.0).tick(_defect_types, dt_cat, dt_exist)
+
+            def do_dt_add(c, name):
+                if not c:
+                    return "请先选择类别", ""
+                try:
+                    return f"已创建: {add_defect_type(c, name, cfg)}", ""
+                except Exception as exc:
+                    summary, detail = error_pair(exc)
+                    return summary, detail
+
+            def do_dt_rename(c, old, new):
+                if not c or not old:
+                    return "请先选择类别和现有缺陷类型", ""
+                try:
+                    return f"已改名为: {rename_defect_type(c, old, new, cfg)}", ""
+                except Exception as exc:
+                    summary, detail = error_pair(exc)
+                    return summary, detail
+
+            btn_dt_add.click(do_dt_add, [dt_cat, dt_new], [dt_msg, err_detail])
+            btn_dt_rename.click(do_dt_rename, [dt_cat, dt_exist, dt_new], [dt_msg, err_detail])
