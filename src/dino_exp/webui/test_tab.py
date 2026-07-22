@@ -8,27 +8,50 @@ from dino_exp.retrain import preview_retrain, retrain
 from dino_exp.webui.common import category_dropdown, error_pair
 
 
+def _verdict_html(label: str, score: float, threshold: float) -> str:
+    """OK/NG 彩色判定徽章（业界惯例：绿=OK 红=NG）。"""
+    if not label:
+        return ""
+    color = "#16a34a" if label == "OK" else "#dc2626"
+    return (
+        f"<div style='display:inline-block;padding:8px 24px;border-radius:8px;"
+        f"background:{color};color:#fff;font-size:26px;font-weight:700'>{label}</div>"
+        f"<div style='margin-top:6px;color:#666'>异常分数 {score:.4f} / 阈值 {threshold:.4f}</div>"
+    )
+
+
 def build(cfg):
     cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
     version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
+
     def _versions(c):
         return gr.update(choices=Registry(cfg.models_root).list(c) if c else [])
 
     cat.change(_versions, cat, version)
     gr.Timer(3.0).tick(_versions, cat, version)  # 定时刷新，保证版本列表始终可选
 
-    with gr.Row():
-        srv_img = gr.Dropdown(label="从数据集选图（随类别刷新）", choices=[], value=None, scale=3)
-        btn_srv = gr.Button("刷新图片列表", scale=1)
-    srv_preview = gr.Image(label="选中图片预览", height=240)
-    img = gr.Image(type="filepath", label="或上传图片（优先于选图）")
-    btn = gr.Button("测试", variant="primary")
-    label_out = gr.Textbox(label="判定", interactive=False)
-    score_out = gr.Number(label="异常分数")
-    heat_out = gr.Image(label="热力图")
     state_score = gr.State(0.0)
     state_pred = gr.State("")
     state_path = gr.State("")
+
+    with gr.Row():
+        # 左列：选图/上传（tab 分开，不再堆叠）
+        with gr.Column(scale=1):
+            with gr.Tabs():
+                with gr.Tab("从数据集选图"):
+                    with gr.Row():
+                        srv_img = gr.Dropdown(label="图片（随类别刷新）", choices=[], value=None, scale=3)
+                        btn_srv = gr.Button("刷新", scale=1)
+                    srv_preview = gr.Image(label="选中图片预览", height=260)
+                    btn_test_srv = gr.Button("测 试", variant="primary")
+                with gr.Tab("上传图片"):
+                    img = gr.Image(type="filepath", label="上传图片", height=300)
+                    btn_test_up = gr.Button("测 试", variant="primary")
+
+        # 右列：判定结果 + 热力图
+        with gr.Column(scale=1):
+            verdict = gr.HTML(label="判定结果")
+            heat_out = gr.Image(label="异常热力图", height=300)
 
     err_box = gr.Textbox(label="提示", interactive=False)
     with gr.Accordion("错误详情（点击展开堆栈）", open=False):
@@ -52,22 +75,33 @@ def build(cfg):
 
     srv_img.change(preview_selected, [cat, srv_img], srv_preview)
 
-    def do_test(c, v, rel, path):
-        if not path and rel:
-            abs_map = dict(category_images(c, cfg))
-            path = str(abs_map.get(rel, "")) or None
+    def _run_test(c, v, path):
         if not path:
-            return "", 0.0, None, 0.0, "", "", "请先从数据集选图或上传图片。", ""
+            return "", None, 0.0, "", "", "请先选择或上传图片。", ""
         try:
             r = infer_image(path, v or None, category=c, cfg=cfg)
-            return r["label"], r["score"], r["heatmap_path"], r["score"], r["label"], path, "", ""
+            return (_verdict_html(r["label"], r["score"], r["threshold"]),
+                    r["heatmap_path"], r["score"], r["label"], path, "", "")
         except Exception as exc:
             summary, detail = error_pair(exc)
-            return "", 0.0, None, 0.0, "", "", summary, detail
+            return "", None, 0.0, "", "", summary, detail
 
-    btn.click(do_test, [cat, version, srv_img, img],
-              [label_out, score_out, heat_out, state_score, state_pred, state_path,
-               err_box, err_detail])
+    def do_test_srv(c, v, rel):
+        path = None
+        if rel:
+            abs_map = dict(category_images(c, cfg))
+            path = str(abs_map.get(rel, "")) or None
+        return _run_test(c, v, path)
+
+    def do_test_up(c, v, path):
+        return _run_test(c, v, path)
+
+    btn_test_srv.click(do_test_srv, [cat, version, srv_img],
+                       [verdict, heat_out, state_score, state_pred, state_path,
+                        err_box, err_detail])
+    btn_test_up.click(do_test_up, [cat, version, img],
+                      [verdict, heat_out, state_score, state_pred, state_path,
+                       err_box, err_detail])
 
     gr.Markdown("### 反馈")
     fb_label = gr.Radio(["ok", "ng"], value="ok", label="实际标签")

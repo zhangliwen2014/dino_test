@@ -35,7 +35,8 @@ def launch(cfg: Config, port: int = 7860, host: str = "127.0.0.1") -> None:
     log_file = setup_logging()
     get_logger("webui").info("启动 Web UI: http://%s:%d（日志: %s）", host, port, log_file)
     jm = JobManager()
-    with gr.Blocks(title="DINO 异常检测试验环境", css=_CSS) as demo:
+    theme = gr.themes.Soft(primary_hue="blue", neutral_hue="slate")
+    with gr.Blocks(title="DINO 异常检测试验环境", css=_CSS, theme=theme) as demo:
         gr.Markdown("# DINO 无监督异常检测试验环境")
         with gr.Row():
             with gr.Column(scale=1, min_width=150):

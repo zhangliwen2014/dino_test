@@ -38,12 +38,16 @@ def build(cfg):
                    [metrics, rows_out, err_box, err_detail])
 
     gr.Markdown("### 选图验证")
-    with gr.Row():
-        srv_img = gr.Dropdown(label="从数据集选图（随类别刷新）", choices=[], value=None, scale=3)
-        btn_srv = gr.Button("刷新图片列表", scale=1)
-    srv_preview = gr.Image(label="选中图片预览", height=240)
-    files = gr.File(file_count="multiple", label="或上传图片")
-    btn_sel = gr.Button("验证所选/上传", variant="primary")
+    with gr.Tabs():
+        with gr.Tab("从数据集选图"):
+            with gr.Row():
+                srv_img = gr.Dropdown(label="图片（随类别刷新）", choices=[], value=None, scale=3)
+                btn_srv = gr.Button("刷新图片列表", scale=1)
+            srv_preview = gr.Image(label="选中图片预览", height=240)
+            btn_sel_srv = gr.Button("验证所选", variant="primary")
+        with gr.Tab("上传图片"):
+            files = gr.File(file_count="multiple", label="选择图片（可多选）")
+            btn_sel_up = gr.Button("验证上传图片", variant="primary")
     sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果")
 
     def refresh_images(c):
@@ -64,20 +68,28 @@ def build(cfg):
 
     srv_img.change(preview_selected, [cat, srv_img], srv_preview)
 
-    def do_sel(c, v, rel, fs):
+    def _run_sel(c, v, paths):
         try:
-            paths = [f.name for f in fs] if fs else []
-            if rel:
-                abs_map = dict(category_images(c, cfg))
-                if rel in abs_map:
-                    paths = [str(abs_map[rel])] + paths
             if not paths:
-                return [], "请先选择服务器图片或上传图片。", ""
+                return [], "请先选择或上传图片。", ""
             rows = validate_images(c, v or None, paths, cfg)
             return [[r["label"], round(r["score"], 4), r["heatmap_path"]] for r in rows], "", ""
         except Exception as exc:
             summary, detail = error_pair(exc)
             return [], summary, detail
 
-    btn_sel.click(do_sel, [cat, version, srv_img, files],
-                  [sel_out, err_box, err_detail])
+    def do_sel_srv(c, v, rel):
+        paths = []
+        if rel:
+            abs_map = dict(category_images(c, cfg))
+            if rel in abs_map:
+                paths = [str(abs_map[rel])]
+        return _run_sel(c, v, paths)
+
+    def do_sel_up(c, v, fs):
+        return _run_sel(c, v, [f.name for f in fs] if fs else [])
+
+    btn_sel_srv.click(do_sel_srv, [cat, version, srv_img],
+                      [sel_out, err_box, err_detail])
+    btn_sel_up.click(do_sel_up, [cat, version, files],
+                     [sel_out, err_box, err_detail])
