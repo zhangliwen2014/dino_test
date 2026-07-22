@@ -10,9 +10,9 @@ from dino_exp.errors import DinoError
 from dino_exp.feedback.store import FeedbackStore
 from dino_exp.feedback.staging import effective, preview as staging_preview
 from dino_exp.infer import load_model_for_version, load_threshold, preprocess_image
-from dino_exp.models.dual_bank import extract_embeddings, topk_defect_features
+from dino_exp.models.dual_bank import extract_embeddings
 from dino_exp.models.registry import Registry
-from dino_exp.train import finalize_version, score_images
+from dino_exp.train import finalize_version
 from dino_exp.validate import validate_full
 
 
@@ -65,20 +65,51 @@ def retrain(category: str, cfg: Config) -> dict:
     device = resolve_device(cfg)
     model = model.to(device).eval()
 
+    def _feedback_feats(img_path, k: int | None = None):
+        """按模型版本配置（是否切块）提取反馈特征：OK 返回全部 patch 特征；
+        NG 返回 top-k 高分 patch 特征。与建库尺度一致。"""
+        from PIL import Image as _Img
+
+        from dino_exp.tiles import clamp_grid, should_tile, split_image
+
+        grid = getattr(model, "train_tile_grid", (1, 1))
+        overlap = getattr(model, "train_tile_overlap", 0.1)
+        input_size = getattr(model, "train_image_size", cfg.image_size)
+        with _Img.open(img_path) as im:
+            im = im.convert("RGB")
+            grid = clamp_grid(grid, im.size[0], im.size[1], input_size)
+            if should_tile(im.size[0], im.size[1], input_size, grid):
+                parts = [t for t, _ in split_image(im, grid, overlap)]
+            else:
+                parts = [im]
+        embs, scores = [], []
+        for part in parts:
+            tensor = preprocess_image(part, input_size).to(device)
+            emb = extract_embeddings(model.model, tensor)
+            if k is not None:
+                ps, _ = model.model.nearest_neighbors(emb, n_neighbors=1)
+                embs.append(emb)
+                scores.append(ps)
+            else:
+                embs.append(emb)
+        feats = torch.cat(embs)
+        if k is None:
+            return feats
+        scores = torch.cat(scores)
+        topk = torch.topk(scores, k=min(k, feats.shape[0])).indices
+        return feats[topk]
+
     for r in oks:  # OK 反馈 → 钉住并入正常库（不参与 coreset 淘汰/不计入上限）
-        feats = extract_embeddings(model.model, preprocess_image(store.images_dir / r["stored_image"], cfg.image_size).to(device))
-        model.model.add_normal_features(feats, pinned=True)
+        model.model.add_normal_features(_feedback_feats(store.images_dir / r["stored_image"]), pinned=True)
     for r in ngs:  # NG 反馈 → top-k 高分 patch 入缺陷库
-        feats = topk_defect_features(
-            model.model,
-            preprocess_image(store.images_dir / r["stored_image"], cfg.image_size).to(device),
-            k=cfg.defect_topk,
-        )
-        model.model.add_defect_features(feats)
+        model.model.add_defect_features(
+            _feedback_feats(store.images_dir / r["stored_image"], k=cfg.defect_topk))
     model.model.resample_normal_bank()
 
-    # 阈值重校准并注入（FR-6.5）
-    ok_scores = score_images(model, ok_calibration_images(category, cfg), cfg)
+    # 阈值重校准并注入（FR-6.5，score_one 自动按版本配置切块）
+    from dino_exp.infer import score_one
+
+    ok_scores = [score_one(model, p, cfg)[0] for p in ok_calibration_images(category, cfg)]
     parent_metrics = json.loads(
         (Registry(cfg.models_root).version_dir(category, parent) / "metrics.json").read_text()
     )

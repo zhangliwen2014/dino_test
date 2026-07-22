@@ -65,3 +65,12 @@ def test_save_validation_report(tmp_path):
     report = json.loads((tmp_path / "validation.json").read_text())
     assert report["metrics"]["image_AUROC"] == 0.9
     assert len(report["rows"]) == 1
+
+
+def test_aggregate_metrics_large_raw_scores():
+    """真实异常分数（>1，如 20-50）不能被 torchmetrics 钳制：归一化后 AUROC 应正确。"""
+    rows = [{"label_gt": 0, "score": s} for s in [20.1, 21.0, 22.5]] + [
+        {"label_gt": 1, "score": s} for s in [30.0, 35.0, 40.0]]
+    m = aggregate_metrics(rows, threshold=25.0)
+    assert m["image_AUROC"] == 1.0
+    assert m["image_F1Score"] == 1.0

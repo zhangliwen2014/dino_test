@@ -105,12 +105,19 @@ class DualBankPatchcoreModel(PatchcoreModel):
         feats = feats.to(self.memory_bank.device, self.memory_bank.dtype)
         self.defect_bank = feats if self.defect_bank.numel() == 0 else torch.cat([self.defect_bank, feats])
 
-    def fit_coreset(self) -> None:
-        """初始建库：vstack embedding_store → coreset 采样 → memory_bank。"""
+    def fit_coreset(self, max_embeddings: int = 300_000) -> None:
+        """初始建库：vstack embedding_store → (超限先随机预采样) → coreset 采样 → memory_bank。
+
+        切块模式下 embedding 量会 ×网格数（可达百万级），KCenterGreedy 是迭代式
+        贪心（中心数 × 总量次距离计算），必须先随机预采样到可计算规模。
+        """
         if not self.embedding_store:
             raise DinoError("embedding_store 为空，无法 coreset。请确认 Engine.fit 已遍历训练集。")
         feats = torch.vstack(self.embedding_store)
         self.embedding_store.clear()
+        if len(feats) > max_embeddings:
+            idx = torch.randperm(len(feats), device=feats.device)[:max_embeddings]
+            feats = feats[idx]
         ratio = self.coreset_sampling_ratio
         if ratio < 1.0 and int(len(feats) * ratio) >= 1:
             feats = KCenterGreedy(embedding=feats, sampling_ratio=ratio).sample_coreset()

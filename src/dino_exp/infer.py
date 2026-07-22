@@ -76,6 +76,7 @@ def load_model_for_version(category: str, version: str | None, cfg: Config) -> t
     vdir = reg.version_dir(category, version)
     vcfg_file = vdir / "config.yaml"
     run_cfg = cfg
+    saved: dict = {}
     if vcfg_file.exists():
         saved = yaml.safe_load(vcfg_file.read_text(encoding="utf-8")) or {}
         run_cfg = dataclasses.replace(
@@ -92,6 +93,10 @@ def load_model_for_version(category: str, version: str | None, cfg: Config) -> t
     model.apply_threshold(threshold)
     model.eval()
     model.train_image_size = run_cfg.image_size  # 供预处理按训练尺寸缩放（多尺寸版本共存）
+    # 切块配置随版本还原（推理自动切块）
+    tg = saved.get("tile_grid", [1, 1])
+    model.train_tile_grid = (int(tg[0]), int(tg[1]))
+    model.train_tile_overlap = float(saved.get("tile_overlap", 0.1))
     return model, threshold, version
 
 
@@ -118,11 +123,12 @@ def verdict_frame(path: str | Path, label: str, width: int = 8):
 
 
 def annotate_defects(image_path: str | Path, anomaly_map: torch.Tensor, threshold: float,
-                     min_area_ratio: float = 0.001) -> tuple["np.ndarray", list[tuple[int, int, int, int]]]:
+                     min_area_ratio: float = 0.0001) -> tuple["np.ndarray", list[tuple[int, int, int, int]]]:
     """在原图上标记缺陷区域：取 anomaly map 的「热点核心」（max(校准阈值, 99 百分位)）
     以上的连通域画红框——即使整图偏异（裁切/光照差异）也能聚焦最可疑区域而非整图框死。
 
-    返回 (标注后 BGR 图, [(x, y, w, h), ...])。小于原图 0.1% 面积的噪点框忽略。
+    返回 (标注后 BGR 图, [(x, y, w, h), ...])。小于原图 0.01% 面积的噪点框忽略
+    （2000×1500 图约 18×18 像素，兼容切块模式下的小缺陷热区）。
     """
     amap = anomaly_map.squeeze().cpu().numpy()
     with Image.open(image_path) as im:
@@ -151,6 +157,36 @@ def annotate_and_frame(image_path: str | Path, anomaly_map: torch.Tensor, thresh
     return annotated, boxes
 
 
+def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tensor"]:
+    """单图打分：按模型版本配置自动决定是否切块（图片大于模型输入才切）。
+
+    返回 (score, anomaly_map)。切块时 score = 各块最大分，amap 为拼接后的整图热图；
+    不切块时与普通推理一致。特征尺度与建库时一致（train_tile_grid 随版本配置还原）。
+    """
+    from dino_exp.tiles import clamp_grid, should_tile, split_image, stitch_anomaly_maps
+
+    device = next(model.parameters()).device
+    input_size = getattr(model, "train_image_size", cfg.image_size)
+    grid = getattr(model, "train_tile_grid", (1, 1))
+    overlap = getattr(model, "train_tile_overlap", 0.1)
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        grid = clamp_grid(grid, im.size[0], im.size[1], input_size)
+        if should_tile(im.size[0], im.size[1], input_size, grid):
+            tiles = split_image(im, grid, overlap)
+            batch = torch.cat([_preprocess_pil(t, input_size) for t, _ in tiles]).to(device)
+            with torch.no_grad():
+                out = model.model(batch)
+            score = float(out.pred_score.max().item())
+            amaps = [out.anomaly_map[i].squeeze(0) for i in range(len(tiles))]
+            amap = stitch_anomaly_maps(amaps, [b for _, b in tiles], grid, im.size)
+            return score, amap
+        tensor = _preprocess_pil(im, input_size).to(device)
+    with torch.no_grad():
+        out = model.model(tensor)
+    return float(out.pred_score.item()), out.anomaly_map
+
+
 def _infer_loaded(
     model: DualBankPatchcore,
     threshold: float,
@@ -159,22 +195,19 @@ def _infer_loaded(
     cfg: Config,
     heatmap_dir: str | Path = "outputs/heatmaps",
 ) -> dict:
-    """对已加载模型的纯推理（不含模型加载），供单图/批量共用。"""
-    device = next(model.parameters()).device
-    input_size = getattr(model, "train_image_size", cfg.image_size)  # 优先按模型训练尺寸预处理
-    with Image.open(path) as im:  # 一次打开：同时取原图尺寸与预处理输入
-        im = im.convert("RGB")
+    """对已加载模型的纯推理（不含模型加载），供单图/批量共用。
+
+    打分统一走 score_one：按模型版本配置自动切块（训练/推理同尺度）。
+    """
+    with Image.open(path) as im:
         out_size = im.size  # (W, H)
-        tensor = _preprocess_pil(im, input_size).to(device)
-    with torch.no_grad():
-        out = model.model(tensor)
-    score = float(out.pred_score.item())
+    score, amap = score_one(model, path, cfg)
     hdir = Path(heatmap_dir)
     hdir.mkdir(parents=True, exist_ok=True)
     heatmap_path = hdir / _heatmap_name(path, version)
-    _imwrite_unicode(heatmap_path, heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
+    _imwrite_unicode(heatmap_path, heatmap_to_bgr(amap.cpu(), out_size))
     label = decide_label(score, threshold)
-    annotated, boxes = annotate_and_frame(path, out.anomaly_map.cpu(), threshold, label)
+    annotated, boxes = annotate_and_frame(path, amap.cpu(), threshold, label)
     annotated_path = hdir / _heatmap_name(path, version).replace("_heatmap.png", "_annotated.png")
     _imwrite_unicode(annotated_path, annotated)
     return {

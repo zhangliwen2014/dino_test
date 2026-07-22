@@ -45,13 +45,15 @@ src/dino_exp/
 
 1. **阈值单一来源**：mean+3σ 校准 → 注入 PostProcessor（`apply_threshold`，幂等）→ metrics.json → 判定/导出共用。不要在应用层另算阈值。engine.test 必须在阈值注入**之后**跑（否则 F1 口径漂移）。
 2. **存储格式**：`normal_bank.pt` 一律为 `save_banks` 字典 `{memory_bank, defect_bank, pinned_count, base_bank_size}`；registry 的 `defect_bank.pt` 只是 `torch.empty(0)` 占位。`load_banks` 在 `model.to(device)` **之前**调用。
-3. **metrics.json 键名**：`image_AUROC/image_AUPR/image_F1Score/pixel_AUROC/pixel_AUPRO/threshold`（+retrain 的 `parent_threshold`）。改键名必须全链路同步。
+3. **metrics.json 键名**：`image_AUROC/image_AUPR/image_F1Score/pixel_AUROC/pixel_AUPRO/threshold`（+retrain 的 `parent_threshold`）。改键名必须全链路同步。**注意：torchmetrics 二分指标按 [0,1] 概率语义处理输入**，真实异常分数（>1）会被钳制成并列——`aggregate_metrics` 已做 min-max 归一化，新增指标路径同样要处理。
 4. **钉住（pin）语义**：OK 反馈特征插入 memory_bank 前段钉住区，不参与 coreset 淘汰、不计入上限（上限=基础版本库×1.5）。这是「反馈后判定翻转」的机制保证，不要破坏。
 5. **缺陷库只加分不减分**：`d_d < d_n` 时 patch 分数 ×(1+w)，注入在 `nearest_neighbors` 的 `n_neighbors==1` 支路（support-sample 查询不受影响）。
 6. **再训练顺序**：先用 `staging.effective(store.staged())` 算生效集合 → 建版本 → 全部成功后才 `store.apply()` 消费暂存区（失败不丢反馈）。不要调回先 apply。
 7. **UI/CLI 都是薄封装**：业务逻辑只进应用层（datasets/train/validate/infer/retrain/feedback/registry），双入口调用同一函数。
 8. **原子写**：版本库（tmp 目录+rename，current 最后更新）、反馈 JSONL（tmp+os.replace）、数据导入（先全量校验后拷贝）。新写文件路径遵循同样标准。
-9. **git**：`data/ models/ feedback/ results/ outputs/ datasets/` 均已 gitignore（根锚定），运行时产物不入库；commit 前缀 `feat:/fix:/test:/docs:/chore:`。
+9. **git**：`data/ models/ feedback/ results/ outputs/ datasets/ wheels/ logs/` 均已 gitignore（根锚定），运行时产物不入库；commit 前缀 `feat:/fix:/test:/docs:/chore:`。
+10. **切块（tiling）**：训练/推理必须同尺度（网格+重叠率随版本 config.yaml 保存与还原，`model.train_tile_grid/train_tile_overlap/train_image_size`）；只有图片大于模型输入才切（`should_tile`），小图直推；网格密度受 `clamp_grid` 钳制；打分统一走 `infer.score_one`（自动切块），不要绕开它直接调 model；拼接用核心区归属（`stitch_anomaly_maps`）。
+11. **YAML 陷阱**：`tile_mode: off` 在 YAML 里是布尔 False，配置文件必须写 `"off"`（load_config 有兼容兜底，新增布尔语义的字符串配置同理）。
 
 ## anomalib 2.5.1 关键事实（已源码核实，勿凭记忆改动）
 

@@ -13,6 +13,9 @@ train_batch_size: 16
 eval_batch_size: 16
 num_workers: 0                 # Windows 默认 0
 device: auto                   # 运行设备：auto(自动选最强) / cpu / cuda
+tile_mode: "off"             # 切块：off(不切) / auto(自动推荐) / 2x2 / 3x3 / 4x4 / 6x6 / 8x8（注意必须加引号，YAML 会把裸 off 解析成布尔）
+tile_overlap: 0.1              # 切块重叠率
+tile_target_patch_px: 20       # auto 模式目标 patch 覆盖（原图像素）
 data_root: data
 models_root: models
 feedback_root: feedback

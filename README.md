@@ -159,7 +159,18 @@ dino dataset delete --category 我的产品  # 删除整个类别（有确认；
 dino train --category bottle                          # 默认配置
 dino train --category bottle --backbone dinov2_vitb14 # 换骨干
 dino train --category bottle --coreset 0.05 --image-size 518
+dino train --category bottle --tiles auto             # 切块模式（大图小缺陷）
 ```
+
+**切块（tiling）**：针对大图上的小缺陷（如 2000×1500 图上的 10-15px 黑点）。原图按网格切块分别提特征，等效提升分辨率：
+
+- `--tiles off`（默认）不切；`auto` 按数据集图片尺寸自动推荐网格；或显式 `2x2/3x3/4x4/6x6/8x8`
+- 切块配置（网格、10% 重叠率）**随模型版本保存**，推理时自动按版本配置切块——训练后无需再管
+- 只有图片大于模型输入尺寸时才切块，小图自动走普通推理
+- 切块边缘缺陷由重叠区覆盖，拼接用核心区归属避免重复计分
+- 代价：推理时间约 × 网格数（8x8=64 块/图，GPU 批量处理可接受）
+
+**输入尺寸参考**（2000×1500 原图，DINOv2）：224 不切≈识别 160px 缺陷；896 不切≈40-60px；224+8x8 切块≈5-15px
 
 **骨干别名**（`--backbone`）：
 

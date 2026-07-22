@@ -52,11 +52,12 @@ def _setup_retrain_fixture(tmp_path, monkeypatch):
     )
     # 造反馈：1 OK（高分误报）+ 1 NG
     from dino_exp.feedback.store import FeedbackStore
+    from PIL import Image as _Img
 
     img = tmp_path / "f.png"
-    img.write_bytes(b"x")
+    _Img.fromarray(__import__("numpy").zeros((16, 16, 3), dtype="uint8")).save(img)  # 真实 PNG（反馈提取会真实打开）
     img2 = tmp_path / "g.png"
-    img2.write_bytes(b"y")
+    _Img.fromarray(__import__("numpy").zeros((16, 16, 3), dtype="uint8")).save(img2)
     store = FeedbackStore(cfg.feedback_root, "c")
     # 注意：OK 与 NG 反馈必须用不同图片——同图多条会被 effective() 折叠为最新一条
     store.stage({"image_path": str(img), "model_version": "v001", "prediction": "NG",
@@ -87,6 +88,10 @@ def _setup_retrain_fixture(tmp_path, monkeypatch):
         def resample_normal_bank(self):
             pass
 
+        def nearest_neighbors(self, embedding, n_neighbors=1):
+            # 新版反馈提取（NG top-k）依赖此接口
+            return torch.rand(embedding.shape[0]), None
+
     class FakeModel:
         def __init__(self):
             self.model = FakeInner()
@@ -103,10 +108,10 @@ def _setup_retrain_fixture(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rt, "load_model_for_version", lambda *a, **k: (FakeModel(), 1.0, "v001"))
     monkeypatch.setattr(rt, "extract_embeddings", lambda m, t: torch.randn(16, 4))
-    monkeypatch.setattr(rt, "topk_defect_features", lambda m, t, k: torch.randn(k, 4))
     monkeypatch.setattr(rt, "preprocess_image", lambda p, s: torch.randn(1, 3, 8, 8))
     monkeypatch.setattr(rt, "ok_calibration_images", lambda c, cfg: [img])
-    monkeypatch.setattr(rt, "score_images", lambda m, ps, cfg: [0.9, 1.1, 1.0])
+    # 新版校准走 score_one（retrain 内 from dino_exp.infer import score_one）
+    monkeypatch.setattr("dino_exp.infer.score_one", lambda m, p, c: (1.0, None))
     monkeypatch.setattr(rt, "validate_full", lambda c, v, cfg: {"version": v, "metrics": {"image_AUROC": 0.92}, "rows": []})
     return rt, cfg, store
 

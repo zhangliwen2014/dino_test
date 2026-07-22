@@ -16,19 +16,24 @@ def build(cfg, jm: JobManager):
         value=cfg.backbone, label="骨干")
     coreset = gr.Slider(0.01, 1.0, value=cfg.coreset_sampling_ratio, label="coreset 采样率")
     image_size = gr.Number(value=cfg.image_size, label="输入尺寸（patch 整数倍）")
+    tiles = gr.Dropdown(
+        [("off：不切块", "off"), ("auto：自动推荐网格", "auto"),
+         ("2x2", "2x2"), ("3x3", "3x3"), ("4x4", "4x4"), ("6x6", "6x6"), ("8x8", "8x8")],
+        value=cfg.tile_mode, label="切块（大图提升小缺陷分辨率）")
     btn = gr.Button("开始训练", variant="primary")
     status = gr.Textbox(label="状态", interactive=False)
     logs = gr.Textbox(label="日志", interactive=False, lines=12)
     result = gr.JSON(label="验证指标（训练完成自动全量验证）")
     state_jid = gr.State(None)
 
-    def start(c, bb, cs, sz):
+    def start(c, bb, cs, sz, tm):
         if not c or not c.strip():
             return None, "请先输入类别名（如 bottle）。", ""
         try:
             validate_image_size(int(sz), resolve_backbone(bb).patch_size)
             run_cfg = dataclasses.replace(
-                cfg, backbone=bb, coreset_sampling_ratio=float(cs), image_size=int(sz))
+                cfg, backbone=bb, coreset_sampling_ratio=float(cs), image_size=int(sz),
+                tile_mode=tm)
             run_cfg.layers = list(run_cfg.backbone_spec.default_layers)
             jid = jm.start("train", lambda log: train_model(c, run_cfg, log=log))
             return jid, f"训练已启动: {jid}", ""
@@ -49,5 +54,5 @@ def build(cfg, jm: JobManager):
             return f"失败:\n{st['error']}", text, None
         return "运行中...", text, None
 
-    btn.click(start, [cat, backbone, coreset, image_size], [state_jid, status, logs])
+    btn.click(start, [cat, backbone, coreset, image_size, tiles], [state_jid, status, logs])
     gr.Timer(1.0).tick(poll, state_jid, [status, logs, result])

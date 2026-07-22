@@ -10,7 +10,7 @@ from PIL import Image
 
 from dino_exp.config import Config
 from dino_exp.datasets import dataset_info, mask_path_for, test_images_with_labels
-from dino_exp.infer import decide_label, infer_batch, load_model_for_version, preprocess_image
+from dino_exp.infer import decide_label, infer_batch, load_model_for_version, preprocess_image, score_one
 from dino_exp.models.registry import Registry
 
 
@@ -24,10 +24,14 @@ def aggregate_metrics(rows: list[dict], threshold: float, pixel_pairs: list[tupl
     from torchmetrics import AUROC, AveragePrecision, F1Score
 
     labels = torch.tensor([r["label_gt"] for r in rows])
-    scores = torch.tensor([r["score"] for r in rows])
+    raw_scores = torch.tensor([r["score"] for r in rows])
     if labels.sum().item() == 0:
         return {"degraded": True, "note": "无 NG 测试图，指标降级：仅输出逐图分数"}
-    preds = (scores >= threshold).long()
+    # torchmetrics 二分指标按 [0,1] 概率语义处理输入，超界会被钳制导致并列失真；
+    # AUROC/AUPR 是秩指标，min-max 归一化不改变结果
+    span = raw_scores.max() - raw_scores.min()
+    scores = (raw_scores - raw_scores.min()) / (span + 1e-12)
+    preds = (raw_scores >= threshold).long()
     metrics = {
         "image_AUROC": float(AUROC(task="binary")(scores, labels)),
         "image_AUPR": float(AveragePrecision(task="binary")(scores, labels)),
@@ -84,15 +88,11 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
     anno_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     pixel_pairs = []
-    input_size = getattr(model, "train_image_size", cfg.image_size)  # 按模型训练尺寸预处理
     for path, label_gt, defect_type in test_images_with_labels(category, cfg):
-        tensor = preprocess_image(path, input_size).to(device)
-        with torch.no_grad():
-            out = model.model(tensor)
-        score = float(out.pred_score.item())
+        score, amap_full = score_one(model, path, cfg)  # 自动按版本配置切块
         label_pred = decide_label(score, threshold)
         # 生成标记图（原图+缺陷框+判定外框）与热力图，供验证结果点击预览
-        annotated, _ = annotate_and_frame(path, out.anomaly_map.cpu(), threshold, label_pred)
+        annotated, _ = annotate_and_frame(path, amap_full.cpu(), threshold, label_pred)
         anno_path = anno_dir / f"{Path(path).stem}_anno.png"
         _imwrite_unicode(anno_path, annotated)
         from dino_exp.infer import heatmap_to_bgr
@@ -100,7 +100,7 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
         with Image.open(path) as im:
             orig_size = im.size
         heat_path = anno_dir / f"{Path(path).stem}_heat.png"
-        _imwrite_unicode(heat_path, heatmap_to_bgr(out.anomaly_map.cpu(), orig_size))
+        _imwrite_unicode(heat_path, heatmap_to_bgr(amap_full.cpu(), orig_size))
         rows.append({
             "path": str(path),
             "label_gt": label_gt,
@@ -112,7 +112,7 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
         })
         mask_path = mask_path_for(path, defect_type, info)
         if mask_path is not None:
-            amap = out.anomaly_map.squeeze().float().cpu()
+            amap = amap_full.squeeze().float().cpu()
             mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
             mask = cv2.resize(mask, (amap.shape[1], amap.shape[0]), interpolation=cv2.INTER_NEAREST)
             gt_mask = torch.from_numpy((mask > 127).astype("uint8"))

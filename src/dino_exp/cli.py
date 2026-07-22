@@ -184,9 +184,11 @@ def dataset_preview(cfg, category):
 @click.option("--backbone", default=None, help="骨干别名，默认取配置")
 @click.option("--coreset", "coreset", type=float, default=None)
 @click.option("--image-size", type=int, default=None)
+@click.option("--tiles", "tile_mode", default=None,
+              help="切块：off/auto/2x2/3x3/4x4/6x6/8x8（默认取配置 tile_mode）")
 @click.pass_obj
 @_err
-def train(cfg, category, backbone, coreset, image_size):
+def train(cfg, category, backbone, coreset, image_size, tile_mode):
     from dino_exp.config import validate_image_size
     from dino_exp.train import train_model
 
@@ -198,6 +200,8 @@ def train(cfg, category, backbone, coreset, image_size):
     if image_size:
         validate_image_size(image_size, cfg.backbone_spec.patch_size)
         cfg.image_size = image_size
+    if tile_mode:
+        cfg.tile_mode = tile_mode
     result = train_model(category, cfg)
     click.echo(json.dumps(result, ensure_ascii=False, indent=2))
 

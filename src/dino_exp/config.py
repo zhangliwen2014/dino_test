@@ -68,6 +68,9 @@ class Config:
     eval_batch_size: int = 16
     num_workers: int = 0
     device: str = "auto"  # auto（自动选最强）/ cpu / cuda
+    tile_mode: str = "off"  # off（不切）/ auto（自动推荐）/ 2x2 / 3x3 / 4x4 / 6x6 / 8x8
+    tile_overlap: float = 0.1  # 切块重叠率（避免缺陷被切块边缘切断）
+    tile_target_patch_px: int = 20  # auto 模式的目标 patch 覆盖（原图像素，越小网格越密）
     data_root: Path = Path("data")
     models_root: Path = Path("models")
     feedback_root: Path = Path("feedback")
@@ -149,4 +152,12 @@ def load_config(path: str | Path | None = None) -> Config:
     _validate_numeric_ranges(cfg)
     if str(cfg.device).lower() not in DEVICE_CHOICES:
         raise DinoError(f"配置项 device={cfg.device!r} 非法，只能是 auto/cpu/cuda。")
+    from dino_exp.tiles import TILE_MODES
+
+    if cfg.tile_mode is False:  # YAML 裸写 off 会被解析成布尔 False
+        cfg.tile_mode = "off"
+    if cfg.tile_mode not in TILE_MODES:
+        raise DinoError(f"配置项 tile_mode={cfg.tile_mode!r} 非法，可选: {TILE_MODES}。")
+    if not 0.0 <= cfg.tile_overlap < 0.5:
+        raise DinoError(f"配置项 tile_overlap={cfg.tile_overlap!r} 非法，须在 [0, 0.5) 之间（如 0.1）。")
     return cfg

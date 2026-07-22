@@ -34,6 +34,9 @@ class FakeModel:
     def apply_threshold(self, t):
         self.applied = t
 
+    def eval(self):
+        return self
+
 
 def test_finalize_version_saves_banks_threshold_and_meta(tmp_path):
     cfg = Config(data_root=tmp_path / "data", models_root=tmp_path / "models")
@@ -72,7 +75,8 @@ def test_train_model_emits_stage_logs(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "build_folder", lambda c, cfg: object())
     monkeypatch.setattr(tr, "build_model", lambda cfg: FakeModel())
     monkeypatch.setattr(tr, "ok_calibration_images", lambda c, cfg: [Path("x.png")])
-    monkeypatch.setattr(tr, "score_images", lambda m, ps, cfg: [1.0, 1.2, 0.8, 1.1])
+    # 新版校准走 score_one（train_model 内 from dino_exp.infer import score_one）
+    monkeypatch.setattr("dino_exp.infer.score_one", lambda m, p, c: (1.0, None))
 
     class FakeEngine:
         def __init__(self, **kwargs):
