@@ -24,9 +24,13 @@ def build(cfg):
     def _on_heat_select(table, evt: gr.SelectData):
         idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
         try:
+            from dino_exp.infer import verdict_frame
+
             if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
-                return table.iloc[idx, 2]  # 热力图路径列
-            return table[idx][2]
+                label, path = table.iloc[idx, 0], table.iloc[idx, 2]
+            else:
+                label, path = table[idx][0], table[idx][2]
+            return verdict_frame(path, label)  # 热力图 + 判定色外框（绿=OK 红=NG）
         except Exception:
             return None
 
@@ -56,9 +60,13 @@ def build(cfg):
             def on_full_select(table, evt: gr.SelectData):
                 idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
                 try:
+                    from dino_exp.infer import verdict_frame
+
                     if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
-                        return table.iloc[idx, 3]  # 路径列
-                    return table[idx][3]
+                        label, path = table.iloc[idx, 0], table.iloc[idx, 3]
+                    else:
+                        label, path = table[idx][0], table[idx][3]
+                    return verdict_frame(path, label)  # 原图 + 判定色外框
                 except Exception:
                     return None
 
@@ -126,7 +134,9 @@ def build(cfg):
                 return [], "请先选择或上传图片。", "", None, ""
             rows = validate_images(c, v or None, paths, cfg)
             table = [[r["label"], round(r["score"], 4), r["heatmap_path"]] for r in rows]
-            heat = rows[0]["heatmap_path"] if rows else None  # 自动带出最新热力图
+            from dino_exp.infer import verdict_frame
+
+            heat = verdict_frame(rows[0]["heatmap_path"], rows[0]["label"]) if rows else None
             return table, "", "", heat, verdict_summary_html(rows)
         except Exception as exc:
             summary, detail = error_pair(exc)

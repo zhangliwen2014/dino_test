@@ -88,6 +88,16 @@ def _imwrite_unicode(path: Path, img) -> None:
     Path(path).write_bytes(buf.tobytes())
 
 
+def verdict_frame(path: str | Path, label: str, width: int = 8):
+    """读取图片并加判定色外框（绿=OK 红=NG），返回 ndarray（gr.Image 可直接显示）。"""
+    img = cv2.imread(str(path))
+    if img is None:
+        with Image.open(path) as im:
+            img = cv2.cvtColor(np.array(im.convert("RGB")), cv2.COLOR_RGB2BGR)
+    color = (0, 170, 0) if label == "OK" else (0, 0, 220)
+    return cv2.copyMakeBorder(img, width, width, width, width, cv2.BORDER_CONSTANT, value=color)
+
+
 def annotate_defects(image_path: str | Path, anomaly_map: torch.Tensor, threshold: float,
                      min_area_ratio: float = 0.001) -> tuple["np.ndarray", list[tuple[int, int, int, int]]]:
     """在原图上标记缺陷区域：取 anomaly map 的「热点核心」（max(校准阈值, 99 百分位)）
@@ -136,11 +146,14 @@ def _infer_loaded(
     hdir.mkdir(parents=True, exist_ok=True)
     heatmap_path = hdir / _heatmap_name(path, version)
     _imwrite_unicode(heatmap_path, heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
+    label = decide_label(score, threshold)
     annotated, boxes = annotate_defects(path, out.anomaly_map.cpu(), threshold)
+    border_color = (0, 170, 0) if label == "OK" else (0, 0, 220)  # 外框：绿=OK 红=NG
+    annotated = cv2.copyMakeBorder(annotated, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=border_color)
     annotated_path = hdir / _heatmap_name(path, version).replace("_heatmap.png", "_annotated.png")
     _imwrite_unicode(annotated_path, annotated)
     return {
-        "label": decide_label(score, threshold),
+        "label": label,
         "score": score,
         "threshold": threshold,
         "heatmap_path": str(heatmap_path),
