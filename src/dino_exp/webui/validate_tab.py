@@ -24,13 +24,9 @@ def build(cfg):
     def _on_heat_select(table, evt: gr.SelectData):
         idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
         try:
-            from dino_exp.infer import verdict_frame
-
             if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
-                label, path = table.iloc[idx, 0], table.iloc[idx, 2]
-            else:
-                label, path = table[idx][0], table[idx][2]
-            return verdict_frame(path, label)  # 热力图 + 判定色外框（绿=OK 红=NG）
+                return table.iloc[idx, 2]  # 标记图（原图+缺陷框+判定外框）
+            return table[idx][2]
         except Exception:
             return None
 
@@ -41,14 +37,15 @@ def build(cfg):
             btn_full = gr.Button("开始全量验证", variant="primary")
             metrics = gr.JSON(label="聚合指标")
             rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"],
-                                    label="逐图结果（点击行查看原图）")
+                                    label="逐图结果（点击行查看标记图：原图+缺陷框+判定外框）")
             full_preview = gr.Image(label="原图预览", height=280)
 
             def do_full(c, v, eo):
                 try:
                     report = validate_full(c, v or None, cfg)
                     rows = filter_errors(report["rows"]) if eo else report["rows"]
-                    table = [[r["label_pred"], round(r["score"], 4), r["defect_type"], r["path"]] for r in rows]
+                    table = [[r["label_pred"], round(r["score"], 4), r["defect_type"],
+                              r.get("annotated_path", r["path"])] for r in rows]
                     return report["metrics"], table, "", ""
                 except Exception as exc:
                     summary, detail = error_pair(exc)
@@ -60,13 +57,9 @@ def build(cfg):
             def on_full_select(table, evt: gr.SelectData):
                 idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
                 try:
-                    from dino_exp.infer import verdict_frame
-
                     if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
-                        label, path = table.iloc[idx, 0], table.iloc[idx, 3]
-                    else:
-                        label, path = table[idx][0], table[idx][3]
-                    return verdict_frame(path, label)  # 原图 + 判定色外框
+                        return table.iloc[idx, 3]  # 标记图（原图+缺陷框+判定外框）
+                    return table[idx][3]
                 except Exception:
                     return None
 
@@ -80,7 +73,7 @@ def build(cfg):
             srv_preview = gr.Image(label="选中图片预览", height=240)
             btn_sel_srv = gr.Button("验证所选", variant="primary")
             sel_verdict = gr.HTML()
-            sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果（点击行查看热力图）")
+            sel_out = gr.Dataframe(headers=["判定", "分数", "标记图"], label="结果（点击行查看标记图）")
             sel_heat = gr.Image(label="热力图预览", height=280)
 
             def refresh_images(c):
@@ -118,7 +111,7 @@ def build(cfg):
             files = gr.File(file_count="multiple", label="选择图片（可多选）")
             btn_sel_up = gr.Button("验证上传图片", variant="primary")
             up_verdict = gr.HTML()
-            up_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果（点击行查看热力图）")
+            up_out = gr.Dataframe(headers=["判定", "分数", "标记图"], label="结果（点击行查看标记图）")
             up_heat = gr.Image(label="热力图预览", height=280)
 
             def do_sel_up(c, v, fs):
@@ -133,10 +126,8 @@ def build(cfg):
             if not paths:
                 return [], "请先选择或上传图片。", "", None, ""
             rows = validate_images(c, v or None, paths, cfg)
-            table = [[r["label"], round(r["score"], 4), r["heatmap_path"]] for r in rows]
-            from dino_exp.infer import verdict_frame
-
-            heat = verdict_frame(rows[0]["heatmap_path"], rows[0]["label"]) if rows else None
+            table = [[r["label"], round(r["score"], 4), r["annotated_path"]] for r in rows]
+            heat = rows[0]["annotated_path"] if rows else None  # 自动带出最新标记图
             return table, "", "", heat, verdict_summary_html(rows)
         except Exception as exc:
             summary, detail = error_pair(exc)

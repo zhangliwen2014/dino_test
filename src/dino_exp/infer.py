@@ -125,6 +125,14 @@ def annotate_defects(image_path: str | Path, anomaly_map: torch.Tensor, threshol
     return base, boxes
 
 
+def annotate_and_frame(image_path: str | Path, anomaly_map: torch.Tensor, threshold: float, label: str):
+    """原图 + 缺陷红框 + 判定色外框（绿=OK 红=NG）的合成标注图。推理与验证共用。"""
+    annotated, boxes = annotate_defects(image_path, anomaly_map, threshold)
+    color = (0, 170, 0) if label == "OK" else (0, 0, 220)
+    annotated = cv2.copyMakeBorder(annotated, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=color)
+    return annotated, boxes
+
+
 def _infer_loaded(
     model: DualBankPatchcore,
     threshold: float,
@@ -147,9 +155,7 @@ def _infer_loaded(
     heatmap_path = hdir / _heatmap_name(path, version)
     _imwrite_unicode(heatmap_path, heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
     label = decide_label(score, threshold)
-    annotated, boxes = annotate_defects(path, out.anomaly_map.cpu(), threshold)
-    border_color = (0, 170, 0) if label == "OK" else (0, 0, 220)  # 外框：绿=OK 红=NG
-    annotated = cv2.copyMakeBorder(annotated, 8, 8, 8, 8, cv2.BORDER_CONSTANT, value=border_color)
+    annotated, boxes = annotate_and_frame(path, out.anomaly_map.cpu(), threshold, label)
     annotated_path = hdir / _heatmap_name(path, version).replace("_heatmap.png", "_annotated.png")
     _imwrite_unicode(annotated_path, annotated)
     return {

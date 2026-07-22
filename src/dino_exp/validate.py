@@ -77,6 +77,10 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
 
     device = resolve_device(cfg)
     model = model.to(device).eval()
+    from dino_exp.infer import _imwrite_unicode, annotate_and_frame
+
+    anno_dir = Path("outputs/annotates") / f"{category}_{version}"
+    anno_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     pixel_pairs = []
     for path, label_gt, defect_type in test_images_with_labels(category, cfg):
@@ -84,12 +88,18 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
         with torch.no_grad():
             out = model.model(tensor)
         score = float(out.pred_score.item())
+        label_pred = decide_label(score, threshold)
+        # 生成标记图（原图+缺陷框+判定外框），供验证结果点击预览
+        annotated, _ = annotate_and_frame(path, out.anomaly_map.cpu(), threshold, label_pred)
+        anno_path = anno_dir / f"{Path(path).stem}_anno.png"
+        _imwrite_unicode(anno_path, annotated)
         rows.append({
             "path": str(path),
             "label_gt": label_gt,
             "defect_type": defect_type,
             "score": score,
-            "label_pred": decide_label(score, threshold),
+            "label_pred": label_pred,
+            "annotated_path": str(anno_path),
         })
         mask_path = mask_path_for(path, defect_type, info)
         if mask_path is not None:
