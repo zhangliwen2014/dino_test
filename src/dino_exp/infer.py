@@ -121,7 +121,6 @@ def annotate_defects(image_path: str | Path, anomaly_map: torch.Tensor, threshol
             boxes.append((int(x), int(y), int(w), int(h)))
     for x, y, w, h in boxes:
         cv2.rectangle(base, (x, y), (x + w, y + h), (0, 0, 255), 3)
-        cv2.putText(base, "NG", (x, max(0, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
     return base, boxes
 
 

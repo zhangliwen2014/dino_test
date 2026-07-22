@@ -27,14 +27,43 @@ def build(cfg):
     with gr.Accordion("错误详情（点击展开堆栈）", open=False):
         err_detail = gr.Textbox(interactive=False, lines=8)
 
-    def _on_heat_select(table, evt: gr.SelectData):
+    def make_result_view():
+        """结果查看组件：标记图/热力图双页签 + 上一张/下一张切换。
+
+        返回 (update_fn, outputs, btn_prev, btn_next, results_state, idx_state)。
+        update_fn(rows, idx) -> 对应 outputs 的 4 个值。
+        """
+        results_state = gr.State([])
+        idx_state = gr.State(0)
+        with gr.Tabs():
+            with gr.Tab("标记图（原图+缺陷框）"):
+                anno_img = gr.Image(height=300)
+            with gr.Tab("异常热力图"):
+                heat_img = gr.Image(height=300)
+        with gr.Row():
+            btn_prev = gr.Button("◀ 上一张")
+            pos_label = gr.Markdown("0/0")
+            btn_next = gr.Button("下一张 ▶")
+
+        outputs = [anno_img, heat_img, pos_label, idx_state]
+
+        def update_fn(rows, idx):
+            if not rows:
+                return None, None, "0/0", 0
+            idx = idx % len(rows)
+            r = rows[idx]
+            return (r.get("annotated_path"), r.get("heatmap_path"),
+                    f"第 {idx + 1}/{len(rows)} 张（{r['label']}，分数 {r['score']:.4f}）", idx)
+
+        btn_prev.click(lambda rows, i: update_fn(rows, i - 1),
+                       [results_state, idx_state], outputs)
+        btn_next.click(lambda rows, i: update_fn(rows, i + 1),
+                       [results_state, idx_state], outputs)
+        return update_fn, outputs, results_state, idx_state
+
+    def _row_idx(evt: gr.SelectData) -> int:
         idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
-        try:
-            if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
-                return table.iloc[idx, 2]  # 标记图（原图+缺陷框+判定外框）
-            return table[idx][2]
-        except Exception:
-            return None
+        return int(idx or 0)
 
     with gr.Tabs():
         # ---------------- 全量验证 ----------------
@@ -42,35 +71,30 @@ def build(cfg):
             errors_only = gr.Checkbox(label="只看误判", value=False)
             btn_full = gr.Button("开始全量验证", variant="primary")
             metrics = gr.JSON(label="聚合指标")
-            rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"],
-                                    datatype=["html", "number", "str", "str"],
-                                    label="逐图结果（点击行查看标记图：原图+缺陷框+判定外框）")
-            full_preview = gr.Image(label="原图预览", height=280)
+            rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "标记图", "热力图"],
+                                    datatype=["html", "number", "str", "str", "str"],
+                                    label="逐图结果（点击行查看）")
+            full_update, full_outputs, full_rows, full_idx = make_result_view()
 
             def do_full(c, v, eo):
                 try:
                     report = validate_full(c, v or None, cfg)
                     rows = filter_errors(report["rows"]) if eo else report["rows"]
                     table = [[_label_html(r["label_pred"]), round(r["score"], 4), r["defect_type"],
-                              r.get("annotated_path", r["path"])] for r in rows]
-                    return report["metrics"], table, "", ""
+                              r.get("annotated_path", ""), r.get("heatmap_path", "")] for r in rows]
+                    preview = full_update(rows, 0)
+                    return (report["metrics"], table, "", "", rows, *preview)
                 except Exception as exc:
                     summary, detail = error_pair(exc)
-                    return None, [], summary, detail
+                    return None, [], summary, detail, [], None, None, "0/0", 0
 
             btn_full.click(do_full, [cat, version, errors_only],
-                           [metrics, rows_out, err_box, err_detail])
+                           [metrics, rows_out, err_box, err_detail, full_rows, *full_outputs])
 
-            def on_full_select(table, evt: gr.SelectData):
-                idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
-                try:
-                    if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
-                        return table.iloc[idx, 3]  # 标记图（原图+缺陷框+判定外框）
-                    return table[idx][3]
-                except Exception:
-                    return None
+            def on_full_select(rows, evt: gr.SelectData):
+                return full_update(rows, _row_idx(evt))
 
-            rows_out.select(on_full_select, rows_out, full_preview)
+            rows_out.select(on_full_select, full_rows, full_outputs)
 
         # ---------------- 选图验证：从数据集选图 ----------------
         with gr.Tab("从数据集选图"):
@@ -80,9 +104,10 @@ def build(cfg):
             srv_preview = gr.Image(label="选中图片预览", height=240)
             btn_sel_srv = gr.Button("验证所选", variant="primary")
             sel_verdict = gr.HTML()
-            sel_out = gr.Dataframe(headers=["判定", "分数", "标记图"], datatype=["html", "number", "str"],
-                                   label="结果（点击行查看标记图）")
-            sel_heat = gr.Image(label="热力图预览", height=280)
+            sel_out = gr.Dataframe(headers=["判定", "分数", "标记图", "热力图"],
+                                   datatype=["html", "number", "str", "str"],
+                                   label="结果（点击行查看）")
+            sel_update, sel_outputs, sel_rows, sel_idx = make_result_view()
 
             def refresh_images(c):
                 if not c:
@@ -108,36 +133,46 @@ def build(cfg):
                     abs_map = dict(category_images(c, cfg))
                     if rel in abs_map:
                         paths = [str(abs_map[rel])]
-                return _run_sel(c, v, paths)
+                return _run_sel(c, v, paths, sel_update)
 
             btn_sel_srv.click(do_sel_srv, [cat, version, srv_img],
-                              [sel_out, err_box, err_detail, sel_heat, sel_verdict])
-            sel_out.select(_on_heat_select, sel_out, sel_heat)
+                              [sel_out, err_box, err_detail, sel_verdict, sel_rows, *sel_outputs])
+
+            def on_sel_select(rows, evt: gr.SelectData):
+                return sel_update(rows, _row_idx(evt))
+
+            sel_out.select(on_sel_select, sel_rows, sel_outputs)
 
         # ---------------- 选图验证：上传图片 ----------------
         with gr.Tab("上传图片"):
             files = gr.File(file_count="multiple", label="选择图片（可多选）")
             btn_sel_up = gr.Button("验证上传图片", variant="primary")
             up_verdict = gr.HTML()
-            up_out = gr.Dataframe(headers=["判定", "分数", "标记图"], datatype=["html", "number", "str"],
-                                  label="结果（点击行查看标记图）")
-            up_heat = gr.Image(label="热力图预览", height=280)
+            up_out = gr.Dataframe(headers=["判定", "分数", "标记图", "热力图"],
+                                  datatype=["html", "number", "str", "str"],
+                                  label="结果（点击行查看）")
+            up_update, up_outputs, up_rows, up_idx = make_result_view()
 
             def do_sel_up(c, v, fs):
-                return _run_sel(c, v, [f.name for f in fs] if fs else [])
+                return _run_sel(c, v, [f.name for f in fs] if fs else [], up_update)
 
             btn_sel_up.click(do_sel_up, [cat, version, files],
-                             [up_out, err_box, err_detail, up_heat, up_verdict])
-            up_out.select(_on_heat_select, up_out, up_heat)
+                             [up_out, err_box, err_detail, up_verdict, up_rows, *up_outputs])
 
-    def _run_sel(c, v, paths):
+            def on_up_select(rows, evt: gr.SelectData):
+                return up_update(rows, _row_idx(evt))
+
+            up_out.select(on_up_select, up_rows, up_outputs)
+
+    def _run_sel(c, v, paths, update_fn):
         try:
             if not paths:
-                return [], "请先选择或上传图片。", "", None, ""
+                return [], "请先选择或上传图片。", "", "", [], None, None, "0/0", 0
             rows = validate_images(c, v or None, paths, cfg)
-            table = [[_label_html(r["label"]), round(r["score"], 4), r["annotated_path"]] for r in rows]
-            heat = rows[0]["annotated_path"] if rows else None  # 自动带出最新标记图
-            return table, "", "", heat, verdict_summary_html(rows)
+            table = [[_label_html(r["label"]), round(r["score"], 4),
+                      r["annotated_path"], r["heatmap_path"]] for r in rows]
+            preview = update_fn(rows, 0)
+            return (table, "", "", verdict_summary_html(rows), rows, *preview)
         except Exception as exc:
             summary, detail = error_pair(exc)
-            return [], summary, detail, None, ""
+            return [], summary, detail, "", [], None, None, "0/0", 0

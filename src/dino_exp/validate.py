@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import torch
+from PIL import Image
 
 from dino_exp.config import Config
 from dino_exp.datasets import dataset_info, mask_path_for, test_images_with_labels
@@ -89,10 +90,16 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
             out = model.model(tensor)
         score = float(out.pred_score.item())
         label_pred = decide_label(score, threshold)
-        # 生成标记图（原图+缺陷框+判定外框），供验证结果点击预览
+        # 生成标记图（原图+缺陷框+判定外框）与热力图，供验证结果点击预览
         annotated, _ = annotate_and_frame(path, out.anomaly_map.cpu(), threshold, label_pred)
         anno_path = anno_dir / f"{Path(path).stem}_anno.png"
         _imwrite_unicode(anno_path, annotated)
+        from dino_exp.infer import heatmap_to_bgr
+
+        with Image.open(path) as im:
+            orig_size = im.size
+        heat_path = anno_dir / f"{Path(path).stem}_heat.png"
+        _imwrite_unicode(heat_path, heatmap_to_bgr(out.anomaly_map.cpu(), orig_size))
         rows.append({
             "path": str(path),
             "label_gt": label_gt,
@@ -100,6 +107,7 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
             "score": score,
             "label_pred": label_pred,
             "annotated_path": str(anno_path),
+            "heatmap_path": str(heat_path),
         })
         mask_path = mask_path_for(path, defect_type, info)
         if mask_path is not None:
