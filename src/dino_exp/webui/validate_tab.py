@@ -21,13 +21,22 @@ def build(cfg):
     with gr.Accordion("错误详情（点击展开堆栈）", open=False):
         err_detail = gr.Textbox(interactive=False, lines=8)
 
+    def _on_heat_select(table, evt: gr.SelectData):
+        idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+        try:
+            return table[idx][2]  # 热力图路径列
+        except Exception:
+            return None
+
     with gr.Tabs():
         # ---------------- 全量验证 ----------------
         with gr.Tab("全量验证"):
             errors_only = gr.Checkbox(label="只看误判", value=False)
             btn_full = gr.Button("开始全量验证", variant="primary")
             metrics = gr.JSON(label="聚合指标")
-            rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"], label="逐图结果")
+            rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"],
+                                    label="逐图结果（点击行查看原图）")
+            full_preview = gr.Image(label="原图预览", height=280)
 
             def do_full(c, v, eo):
                 try:
@@ -42,6 +51,15 @@ def build(cfg):
             btn_full.click(do_full, [cat, version, errors_only],
                            [metrics, rows_out, err_box, err_detail])
 
+            def on_full_select(table, evt: gr.SelectData):
+                idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
+                try:
+                    return table[idx][3]  # 路径列
+                except Exception:
+                    return None
+
+            rows_out.select(on_full_select, rows_out, full_preview)
+
         # ---------------- 选图验证：从数据集选图 ----------------
         with gr.Tab("从数据集选图"):
             with gr.Row():
@@ -49,7 +67,8 @@ def build(cfg):
                 btn_srv = gr.Button("刷新图片列表", scale=1)
             srv_preview = gr.Image(label="选中图片预览", height=240)
             btn_sel_srv = gr.Button("验证所选", variant="primary")
-            sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果")
+            sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果（点击行查看热力图）")
+            sel_heat = gr.Image(label="热力图预览", height=280)
 
             def refresh_images(c):
                 if not c:
@@ -79,18 +98,21 @@ def build(cfg):
 
             btn_sel_srv.click(do_sel_srv, [cat, version, srv_img],
                               [sel_out, err_box, err_detail])
+            sel_out.select(_on_heat_select, sel_out, sel_heat)
 
         # ---------------- 选图验证：上传图片 ----------------
         with gr.Tab("上传图片"):
             files = gr.File(file_count="multiple", label="选择图片（可多选）")
             btn_sel_up = gr.Button("验证上传图片", variant="primary")
-            up_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果")
+            up_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果（点击行查看热力图）")
+            up_heat = gr.Image(label="热力图预览", height=280)
 
             def do_sel_up(c, v, fs):
                 return _run_sel(c, v, [f.name for f in fs] if fs else [])
 
             btn_sel_up.click(do_sel_up, [cat, version, files],
                              [up_out, err_box, err_detail])
+            up_out.select(_on_heat_select, up_out, up_heat)
 
     def _run_sel(c, v, paths):
         try:
