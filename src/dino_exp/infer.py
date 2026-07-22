@@ -88,6 +88,33 @@ def _imwrite_unicode(path: Path, img) -> None:
     Path(path).write_bytes(buf.tobytes())
 
 
+def annotate_defects(image_path: str | Path, anomaly_map: torch.Tensor, threshold: float,
+                     min_area_ratio: float = 0.001) -> tuple["np.ndarray", list[tuple[int, int, int, int]]]:
+    """在原图上标记缺陷区域：取 anomaly map 的「热点核心」（max(校准阈值, 99 百分位)）
+    以上的连通域画红框——即使整图偏异（裁切/光照差异）也能聚焦最可疑区域而非整图框死。
+
+    返回 (标注后 BGR 图, [(x, y, w, h), ...])。小于原图 0.1% 面积的噪点框忽略。
+    """
+    amap = anomaly_map.squeeze().cpu().numpy()
+    with Image.open(image_path) as im:
+        base = cv2.cvtColor(np.array(im.convert("RGB")), cv2.COLOR_RGB2BGR)
+    amap = cv2.resize(amap, (base.shape[1], base.shape[0]))
+    pix_th = max(float(threshold), float(np.percentile(amap, 99.0)))
+    mask = (amap >= pix_th).astype(np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # 去散点
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    min_area = base.shape[0] * base.shape[1] * min_area_ratio
+    boxes = []
+    for i in range(1, n):
+        x, y, w, h, area = stats[i]
+        if area >= min_area:
+            boxes.append((int(x), int(y), int(w), int(h)))
+    for x, y, w, h in boxes:
+        cv2.rectangle(base, (x, y), (x + w, y + h), (0, 0, 255), 3)
+        cv2.putText(base, "NG", (x, max(0, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+    return base, boxes
+
+
 def _infer_loaded(
     model: DualBankPatchcore,
     threshold: float,
@@ -109,11 +136,16 @@ def _infer_loaded(
     hdir.mkdir(parents=True, exist_ok=True)
     heatmap_path = hdir / _heatmap_name(path, version)
     _imwrite_unicode(heatmap_path, heatmap_to_bgr(out.anomaly_map.cpu(), out_size))
+    annotated, boxes = annotate_defects(path, out.anomaly_map.cpu(), threshold)
+    annotated_path = hdir / _heatmap_name(path, version).replace("_heatmap.png", "_annotated.png")
+    _imwrite_unicode(annotated_path, annotated)
     return {
         "label": decide_label(score, threshold),
         "score": score,
         "threshold": threshold,
         "heatmap_path": str(heatmap_path),
+        "annotated_path": str(annotated_path),
+        "defect_boxes": boxes,
     }
 
 

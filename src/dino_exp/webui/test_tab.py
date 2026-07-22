@@ -42,10 +42,14 @@ def build(cfg):
                     img = gr.Image(type="filepath", label="上传图片", height=300)
                     btn_test_up = gr.Button("测 试", variant="primary")
 
-        # 右列：判定结果 + 热力图
+        # 右列：判定结果 + 热力图/缺陷标记
         with gr.Column(scale=1):
             verdict = gr.HTML(label="判定结果")
-            heat_out = gr.Image(label="异常热力图", height=300)
+            with gr.Tabs():
+                with gr.Tab("缺陷标记"):
+                    anno_out = gr.Image(label="原图+缺陷框", height=300)
+                with gr.Tab("异常热力图"):
+                    heat_out = gr.Image(label="热力图", height=300)
 
     err_box = gr.Textbox(label="提示", interactive=False)
     with gr.Accordion("错误详情（点击展开堆栈）", open=False):
@@ -71,14 +75,15 @@ def build(cfg):
 
     def _run_test(c, v, path):
         if not path:
-            return "", None, 0.0, "", "", "请先选择或上传图片。", ""
+            return "", None, None, 0.0, "", "", "请先选择或上传图片。", ""
         try:
             r = infer_image(path, v or None, category=c, cfg=cfg)
             return (_verdict_html(r["label"], r["score"], r["threshold"]),
-                    r["heatmap_path"], r["score"], r["label"], path, "", "")
+                    r["annotated_path"], r["heatmap_path"],
+                    r["score"], r["label"], path, "", "")
         except Exception as exc:
             summary, detail = error_pair(exc)
-            return "", None, 0.0, "", "", summary, detail
+            return "", None, None, 0.0, "", "", summary, detail
 
     def do_test_srv(c, v, rel):
         path = None
@@ -91,10 +96,10 @@ def build(cfg):
         return _run_test(c, v, path)
 
     btn_test_srv.click(do_test_srv, [cat, version, srv_img],
-                       [verdict, heat_out, state_score, state_pred, state_path,
+                       [verdict, anno_out, heat_out, state_score, state_pred, state_path,
                         err_box, err_detail])
     btn_test_up.click(do_test_up, [cat, version, img],
-                      [verdict, heat_out, state_score, state_pred, state_path,
+                      [verdict, anno_out, heat_out, state_score, state_pred, state_path,
                        err_box, err_detail])
 
     gr.Markdown("### 反馈")
