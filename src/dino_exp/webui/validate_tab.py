@@ -6,6 +6,12 @@ from dino_exp.validate import filter_errors, validate_full, validate_images
 from dino_exp.webui.common import category_dropdown, error_pair, verdict_summary_html
 
 
+def _label_html(label: str) -> str:
+    """判定列彩色单元格（绿 OK / 红 NG），配合 Dataframe datatype=["html", ...]。"""
+    color = "#16a34a" if label == "OK" else "#dc2626"
+    return f"<span style='color:{color};font-weight:700'>{label}</span>"
+
+
 def build(cfg):
     with gr.Row():
         cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
@@ -37,6 +43,7 @@ def build(cfg):
             btn_full = gr.Button("开始全量验证", variant="primary")
             metrics = gr.JSON(label="聚合指标")
             rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"],
+                                    datatype=["html", "number", "str", "str"],
                                     label="逐图结果（点击行查看标记图：原图+缺陷框+判定外框）")
             full_preview = gr.Image(label="原图预览", height=280)
 
@@ -44,7 +51,7 @@ def build(cfg):
                 try:
                     report = validate_full(c, v or None, cfg)
                     rows = filter_errors(report["rows"]) if eo else report["rows"]
-                    table = [[r["label_pred"], round(r["score"], 4), r["defect_type"],
+                    table = [[_label_html(r["label_pred"]), round(r["score"], 4), r["defect_type"],
                               r.get("annotated_path", r["path"])] for r in rows]
                     return report["metrics"], table, "", ""
                 except Exception as exc:
@@ -73,7 +80,8 @@ def build(cfg):
             srv_preview = gr.Image(label="选中图片预览", height=240)
             btn_sel_srv = gr.Button("验证所选", variant="primary")
             sel_verdict = gr.HTML()
-            sel_out = gr.Dataframe(headers=["判定", "分数", "标记图"], label="结果（点击行查看标记图）")
+            sel_out = gr.Dataframe(headers=["判定", "分数", "标记图"], datatype=["html", "number", "str"],
+                                   label="结果（点击行查看标记图）")
             sel_heat = gr.Image(label="热力图预览", height=280)
 
             def refresh_images(c):
@@ -111,7 +119,8 @@ def build(cfg):
             files = gr.File(file_count="multiple", label="选择图片（可多选）")
             btn_sel_up = gr.Button("验证上传图片", variant="primary")
             up_verdict = gr.HTML()
-            up_out = gr.Dataframe(headers=["判定", "分数", "标记图"], label="结果（点击行查看标记图）")
+            up_out = gr.Dataframe(headers=["判定", "分数", "标记图"], datatype=["html", "number", "str"],
+                                  label="结果（点击行查看标记图）")
             up_heat = gr.Image(label="热力图预览", height=280)
 
             def do_sel_up(c, v, fs):
@@ -126,7 +135,7 @@ def build(cfg):
             if not paths:
                 return [], "请先选择或上传图片。", "", None, ""
             rows = validate_images(c, v or None, paths, cfg)
-            table = [[r["label"], round(r["score"], 4), r["annotated_path"]] for r in rows]
+            table = [[_label_html(r["label"]), round(r["score"], 4), r["annotated_path"]] for r in rows]
             heat = rows[0]["annotated_path"] if rows else None  # 自动带出最新标记图
             return table, "", "", heat, verdict_summary_html(rows)
         except Exception as exc:
