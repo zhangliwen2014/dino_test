@@ -24,7 +24,9 @@ def build(cfg):
     def _on_heat_select(table, evt: gr.SelectData):
         idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
         try:
-            return table[idx][2]  # 热力图路径列
+            if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
+                return table.iloc[idx, 2]  # 热力图路径列
+            return table[idx][2]
         except Exception:
             return None
 
@@ -54,7 +56,9 @@ def build(cfg):
             def on_full_select(table, evt: gr.SelectData):
                 idx = evt.index[0] if isinstance(evt.index, (list, tuple)) else evt.index
                 try:
-                    return table[idx][3]  # 路径列
+                    if hasattr(table, "iloc"):  # Gradio 6 传 pandas DataFrame
+                        return table.iloc[idx, 3]  # 路径列
+                    return table[idx][3]
                 except Exception:
                     return None
 
