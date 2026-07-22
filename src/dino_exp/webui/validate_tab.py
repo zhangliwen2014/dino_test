@@ -120,6 +120,7 @@ def build(cfg):
 
             cat.change(refresh_images, cat, srv_img)
             btn_srv.click(refresh_images, cat, srv_img)
+            gr.Timer(3.0).tick(refresh_images, cat, srv_img)  # 定时刷新，首次加载也有数据
 
             def preview_selected(c, rel):
                 if not rel:

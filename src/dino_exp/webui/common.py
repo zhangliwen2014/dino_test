@@ -68,11 +68,13 @@ def verdict_summary_html(rows: list[dict]) -> str:
 
 
 def category_dropdown(cfg, *, allow_custom: bool = False, refresh: float = 5.0, **kw):
-    """类别下拉框：choices 来自现有数据集并定时刷新；allow_custom=True 时允许输入新类别。"""
+    """类别下拉框：choices 来自现有数据集并定时刷新；allow_custom=True 时允许输入新类别。
+    默认选中第一个类别，保证首次加载时下游（图片列表等）有数据。"""
     import gradio as gr
 
-    dd = gr.Dropdown(choices=category_choices(cfg), allow_custom_value=allow_custom,
-                     filterable=True, **kw)
+    choices = category_choices(cfg)
+    dd = gr.Dropdown(choices=choices, value=choices[0] if choices else None,
+                     allow_custom_value=allow_custom, filterable=True, **kw)
     if refresh:
         gr.Timer(refresh).tick(lambda: gr.update(choices=category_choices(cfg)), None, dd)
     return dd
