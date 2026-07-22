@@ -21,8 +21,9 @@ def _verdict_html(label: str, score: float, threshold: float) -> str:
 
 
 def build(cfg):
-    cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
-    version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
+    with gr.Row():
+        cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
+        version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
 
     def _versions(c):
         return gr.update(choices=Registry(cfg.models_root).list(c) if c else [])
