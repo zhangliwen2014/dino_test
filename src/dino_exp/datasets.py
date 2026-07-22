@@ -202,13 +202,14 @@ def import_images(
 
     split（仅 OK 图有效）："test" → test/good（默认，兼容旧行为）；
     "train" → train/good（训练集）；"auto" → 按文件名确定性 8:2 分入 train/good 与
-    test/good（从零建数据集时一步获得训练集与阈值校准集）。NG 图始终进 test/<缺陷类型>。
+    test/good（从零建数据集时一步获得训练集与阈值校准集）。NG 图始终进 test/<缺陷类型>，
+    缺陷类型缺省为 "unknown"。
     """
     label = label.lower()
     if label not in {"ok", "ng"}:
         raise DinoError(f"label 只能是 ok/ng，得到 '{label}'。")
-    if label == "ng" and not defect_type:
-        raise DinoError("NG 图片必须指定缺陷类型名（--defect-type），如 scratch。")
+    if label == "ng":
+        defect_type = defect_type or "unknown"  # 选填，缺省进 test/unknown/
     if split not in {"train", "test", "auto"}:
         raise DinoError(f"split 只能是 train/test/auto，得到 '{split}'。")
 

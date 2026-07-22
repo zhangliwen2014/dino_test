@@ -121,7 +121,7 @@ def build(cfg):
                     cfg, allow_custom=True,
                     label="类别名（选择现有类别，或输入新类别名）", refresh=0)
                 label_im = gr.Radio(["ok", "ng"], value="ok", label="标签")
-                dt_im = gr.Textbox(label="缺陷类型（NG 必填）")
+                dt_im = gr.Textbox(label="缺陷类型（NG 选填，默认 unknown）")
                 split_im = gr.Radio(
                     [("auto：OK 图 8:2 自动分入训练集/测试集（从零建数据集推荐）", "auto"),
                      ("train：OK 图全部进训练集 train/good", "train"),

@@ -73,12 +73,12 @@ def test_import_images_ok_and_ng(cfg):
     assert info.defect_types["scratch"] == 1
 
 
-def test_import_images_ng_without_defect_type_raises(cfg):
+def test_import_images_ng_without_defect_type_defaults_unknown(cfg):
     src = cfg.data_root / "incoming2"
     src.mkdir()
     (src / "a.png").write_bytes(b"x")
-    with pytest.raises(DinoError, match="缺陷类型"):
-        import_images([src / "a.png"], "bottle", "ng", None, cfg)
+    paths = import_images([src / "a.png"], "bottle", "ng", None, cfg)
+    assert paths[0].parent.name == "unknown"  # 缺省缺陷类型 → test/unknown/
 
 
 def test_list_datasets(cfg):

@@ -81,7 +81,7 @@ def dataset_download(cfg, category, force):
 @dataset.command("import")
 @click.option("--category", required=True)
 @click.option("--label", type=click.Choice(["ok", "ng"]), required=True)
-@click.option("--defect-type", default=None)
+@click.option("--defect-type", default=None, help="NG 缺陷类型名（选填，默认 unknown）")
 @click.option("--split", type=click.Choice(["train", "test", "auto"]), default="test", show_default=True,
               help="仅 OK 图有效：train=训练集 train/good；test=测试集 test/good；auto=按文件名 8:2 自动分配")
 @click.argument("images", nargs=-1, required=True)

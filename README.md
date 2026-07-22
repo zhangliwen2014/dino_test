@@ -112,7 +112,7 @@ dino dataset import --category 我的产品 --label ok --split auto 图1.jpg 图
 #   --split train 全部进 train/good
 #   --split test  全部进 test/good（默认）
 
-# NG 图（必须指定缺陷类型名）
+# NG 图（缺陷类型选填，默认进 test/unknown/；指定则按类型归档）
 dino dataset import --category 我的产品 --label ng --defect-type 划痕 ng1.jpg
 ```
 
