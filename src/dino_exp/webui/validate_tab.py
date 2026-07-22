@@ -52,8 +52,9 @@ def build(cfg):
                 return None, None, "0/0", 0
             idx = idx % len(rows)
             r = rows[idx]
+            label = r.get("label") or r.get("label_pred", "")  # 全量=label_pred，选图=label
             return (r.get("annotated_path"), r.get("heatmap_path"),
-                    f"第 {idx + 1}/{len(rows)} 张（{r['label']}，分数 {r['score']:.4f}）", idx)
+                    f"第 {idx + 1}/{len(rows)} 张（{label}，分数 {r['score']:.4f}）", idx)
 
         btn_prev.click(lambda rows, i: update_fn(rows, i - 1),
                        [results_state, idx_state], outputs)
