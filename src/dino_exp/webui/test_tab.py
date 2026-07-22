@@ -8,6 +8,19 @@ from dino_exp.retrain import preview_retrain, retrain
 from dino_exp.webui.common import category_dropdown, error_pair, verdict_html
 
 
+def _initial_images(cfg) -> list[str]:
+    """首次加载时，默认类别（第一个）的图片列表。"""
+    from dino_exp.webui.common import category_choices
+
+    cats = category_choices(cfg)
+    if not cats:
+        return []
+    try:
+        return [rel for rel, _ in category_images(cats[0], cfg)]
+    except Exception:
+        return []
+
+
 def _verdict_html(label: str, score: float, threshold: float) -> str:
     """OK/NG 彩色判定徽章（绿=OK 红=NG），委托公共实现。"""
     return verdict_html(label, score, threshold)
@@ -34,7 +47,7 @@ def build(cfg):
             with gr.Tabs():
                 with gr.Tab("从数据集选图"):
                     with gr.Row():
-                        srv_img = gr.Dropdown(label="图片（随类别刷新）", choices=[], value=None, scale=3)
+                        srv_img = gr.Dropdown(label="图片", choices=_initial_images(cfg), value=None, scale=3)
                         btn_srv = gr.Button("刷新", scale=1)
                     srv_preview = gr.Image(label="选中图片预览", height=260)
                     btn_test_srv = gr.Button("测 试", variant="primary")
@@ -65,7 +78,6 @@ def build(cfg):
 
     cat.change(refresh_images, cat, srv_img)
     btn_srv.click(refresh_images, cat, srv_img)
-    gr.Timer(3.0).tick(refresh_images, cat, srv_img)  # 定时刷新，首次加载也有数据
 
     def preview_selected(c, rel):
         if not rel:
