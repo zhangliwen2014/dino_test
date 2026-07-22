@@ -3,7 +3,7 @@ import gradio as gr
 from dino_exp.datasets import category_images
 from dino_exp.models.registry import Registry
 from dino_exp.validate import filter_errors, validate_full, validate_images
-from dino_exp.webui.common import category_dropdown, error_pair
+from dino_exp.webui.common import category_dropdown, error_pair, verdict_summary_html
 
 
 def build(cfg):
@@ -71,6 +71,7 @@ def build(cfg):
                 btn_srv = gr.Button("刷新图片列表", scale=1)
             srv_preview = gr.Image(label="选中图片预览", height=240)
             btn_sel_srv = gr.Button("验证所选", variant="primary")
+            sel_verdict = gr.HTML()
             sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果（点击行查看热力图）")
             sel_heat = gr.Image(label="热力图预览", height=280)
 
@@ -101,13 +102,14 @@ def build(cfg):
                 return _run_sel(c, v, paths)
 
             btn_sel_srv.click(do_sel_srv, [cat, version, srv_img],
-                              [sel_out, err_box, err_detail])
+                              [sel_out, err_box, err_detail, sel_heat, sel_verdict])
             sel_out.select(_on_heat_select, sel_out, sel_heat)
 
         # ---------------- 选图验证：上传图片 ----------------
         with gr.Tab("上传图片"):
             files = gr.File(file_count="multiple", label="选择图片（可多选）")
             btn_sel_up = gr.Button("验证上传图片", variant="primary")
+            up_verdict = gr.HTML()
             up_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果（点击行查看热力图）")
             up_heat = gr.Image(label="热力图预览", height=280)
 
@@ -115,15 +117,17 @@ def build(cfg):
                 return _run_sel(c, v, [f.name for f in fs] if fs else [])
 
             btn_sel_up.click(do_sel_up, [cat, version, files],
-                             [up_out, err_box, err_detail])
+                             [up_out, err_box, err_detail, up_heat, up_verdict])
             up_out.select(_on_heat_select, up_out, up_heat)
 
     def _run_sel(c, v, paths):
         try:
             if not paths:
-                return [], "请先选择或上传图片。", ""
+                return [], "请先选择或上传图片。", "", None, ""
             rows = validate_images(c, v or None, paths, cfg)
-            return [[r["label"], round(r["score"], 4), r["heatmap_path"]] for r in rows], "", ""
+            table = [[r["label"], round(r["score"], 4), r["heatmap_path"]] for r in rows]
+            heat = rows[0]["heatmap_path"] if rows else None  # 自动带出最新热力图
+            return table, "", "", heat, verdict_summary_html(rows)
         except Exception as exc:
             summary, detail = error_pair(exc)
-            return [], summary, detail
+            return [], summary, detail, None, ""

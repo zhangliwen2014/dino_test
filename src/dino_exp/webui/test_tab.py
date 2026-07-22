@@ -5,19 +5,12 @@ from dino_exp.feedback.store import FeedbackStore
 from dino_exp.infer import infer_image
 from dino_exp.models.registry import Registry
 from dino_exp.retrain import preview_retrain, retrain
-from dino_exp.webui.common import category_dropdown, error_pair
+from dino_exp.webui.common import category_dropdown, error_pair, verdict_html
 
 
 def _verdict_html(label: str, score: float, threshold: float) -> str:
-    """OK/NG 彩色判定徽章（业界惯例：绿=OK 红=NG）。"""
-    if not label:
-        return ""
-    color = "#16a34a" if label == "OK" else "#dc2626"
-    return (
-        f"<div style='display:inline-block;padding:8px 24px;border-radius:8px;"
-        f"background:{color};color:#fff;font-size:26px;font-weight:700'>{label}</div>"
-        f"<div style='margin-top:6px;color:#666'>异常分数 {score:.4f} / 阈值 {threshold:.4f}</div>"
-    )
+    """OK/NG 彩色判定徽章（绿=OK 红=NG），委托公共实现。"""
+    return verdict_html(label, score, threshold)
 
 
 def build(cfg):

@@ -39,6 +39,34 @@ def category_choices(cfg) -> list[str]:
     return dataset_categories(cfg)
 
 
+def verdict_html(label: str, score: float, threshold: float) -> str:
+    """OK/NG 彩色判定徽章（绿=OK 红=NG），测试页/验证页共用。"""
+    if not label:
+        return ""
+    color = "#16a34a" if label == "OK" else "#dc2626"
+    return (
+        f"<div style='display:inline-block;padding:8px 24px;border-radius:8px;"
+        f"background:{color};color:#fff;font-size:26px;font-weight:700'>{label}</div>"
+        f"<div style='margin-top:6px;color:#666'>异常分数 {score:.4f} / 阈值 {threshold:.4f}</div>"
+    )
+
+
+def verdict_summary_html(rows: list[dict]) -> str:
+    """多图结果汇总：单图用大徽章，多图用 OK/NG 计数。"""
+    if not rows:
+        return ""
+    if len(rows) == 1:
+        r = rows[0]
+        return verdict_html(r["label"], r["score"], r.get("threshold", 0.0))
+    ok = sum(1 for r in rows if r["label"] == "OK")
+    ng = len(rows) - ok
+    return (
+        f"<div style='font-size:18px'>共 {len(rows)} 张："
+        f"<span style='color:#16a34a;font-weight:700'>OK {ok}</span> ／ "
+        f"<span style='color:#dc2626;font-weight:700'>NG {ng}</span></div>"
+    )
+
+
 def category_dropdown(cfg, *, allow_custom: bool = False, refresh: float = 5.0, **kw):
     """类别下拉框：choices 来自现有数据集并定时刷新；allow_custom=True 时允许输入新类别。"""
     import gradio as gr
