@@ -77,9 +77,12 @@ def build(cfg):
         if not path:
             return "", None, None, 0.0, "", "", "请先选择或上传图片。", ""
         try:
+            from dino_exp.infer import verdict_frame
+
             r = infer_image(path, v or None, category=c, cfg=cfg)
             return (_verdict_html(r["label"], r["score"], r["threshold"]),
-                    r["annotated_path"], r["heatmap_path"],
+                    r["annotated_path"],
+                    verdict_frame(r["heatmap_path"], r["label"]),  # 热力图+判定色外框
                     r["score"], r["label"], path, "", "")
         except Exception as exc:
             summary, detail = error_pair(exc)
