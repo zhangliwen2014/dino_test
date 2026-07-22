@@ -7,12 +7,9 @@ from dino_exp.webui.common import category_dropdown, error_pair
 
 
 def build(cfg):
-    cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
-    version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
-    errors_only = gr.Checkbox(label="只看误判", value=False)
-    btn_full = gr.Button("全量验证", variant="primary")
-    metrics = gr.JSON(label="聚合指标")
-    rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"], label="逐图结果")
+    with gr.Row():
+        cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
+        version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
 
     def _versions(c):
         return gr.update(choices=Registry(cfg.models_root).list(c) if c else [])
@@ -24,49 +21,76 @@ def build(cfg):
     with gr.Accordion("错误详情（点击展开堆栈）", open=False):
         err_detail = gr.Textbox(interactive=False, lines=8)
 
-    def do_full(c, v, eo):
-        try:
-            report = validate_full(c, v or None, cfg)
-            rows = filter_errors(report["rows"]) if eo else report["rows"]
-            table = [[r["label_pred"], round(r["score"], 4), r["defect_type"], r["path"]] for r in rows]
-            return report["metrics"], table, "", ""
-        except Exception as exc:
-            summary, detail = error_pair(exc)
-            return None, [], summary, detail
-
-    btn_full.click(do_full, [cat, version, errors_only],
-                   [metrics, rows_out, err_box, err_detail])
-
-    gr.Markdown("### 选图验证")
     with gr.Tabs():
+        # ---------------- 全量验证 ----------------
+        with gr.Tab("全量验证"):
+            errors_only = gr.Checkbox(label="只看误判", value=False)
+            btn_full = gr.Button("开始全量验证", variant="primary")
+            metrics = gr.JSON(label="聚合指标")
+            rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "路径"], label="逐图结果")
+
+            def do_full(c, v, eo):
+                try:
+                    report = validate_full(c, v or None, cfg)
+                    rows = filter_errors(report["rows"]) if eo else report["rows"]
+                    table = [[r["label_pred"], round(r["score"], 4), r["defect_type"], r["path"]] for r in rows]
+                    return report["metrics"], table, "", ""
+                except Exception as exc:
+                    summary, detail = error_pair(exc)
+                    return None, [], summary, detail
+
+            btn_full.click(do_full, [cat, version, errors_only],
+                           [metrics, rows_out, err_box, err_detail])
+
+        # ---------------- 选图验证：从数据集选图 ----------------
         with gr.Tab("从数据集选图"):
             with gr.Row():
                 srv_img = gr.Dropdown(label="图片（随类别刷新）", choices=[], value=None, scale=3)
                 btn_srv = gr.Button("刷新图片列表", scale=1)
             srv_preview = gr.Image(label="选中图片预览", height=240)
             btn_sel_srv = gr.Button("验证所选", variant="primary")
+            sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果")
+
+            def refresh_images(c):
+                if not c:
+                    return gr.update(choices=[])
+                try:
+                    return gr.update(choices=[rel for rel, _ in category_images(c, cfg)])
+                except Exception:
+                    return gr.update(choices=[])
+
+            cat.change(refresh_images, cat, srv_img)
+            btn_srv.click(refresh_images, cat, srv_img)
+
+            def preview_selected(c, rel):
+                if not rel:
+                    return None
+                return str(dict(category_images(c, cfg)).get(rel, "")) or None
+
+            srv_img.change(preview_selected, [cat, srv_img], srv_preview)
+
+            def do_sel_srv(c, v, rel):
+                paths = []
+                if rel:
+                    abs_map = dict(category_images(c, cfg))
+                    if rel in abs_map:
+                        paths = [str(abs_map[rel])]
+                return _run_sel(c, v, paths)
+
+            btn_sel_srv.click(do_sel_srv, [cat, version, srv_img],
+                              [sel_out, err_box, err_detail])
+
+        # ---------------- 选图验证：上传图片 ----------------
         with gr.Tab("上传图片"):
             files = gr.File(file_count="multiple", label="选择图片（可多选）")
             btn_sel_up = gr.Button("验证上传图片", variant="primary")
-    sel_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果")
+            up_out = gr.Dataframe(headers=["判定", "分数", "热力图"], label="结果")
 
-    def refresh_images(c):
-        if not c:
-            return gr.update(choices=[])
-        try:
-            return gr.update(choices=[rel for rel, _ in category_images(c, cfg)])
-        except Exception:
-            return gr.update(choices=[])
+            def do_sel_up(c, v, fs):
+                return _run_sel(c, v, [f.name for f in fs] if fs else [])
 
-    cat.change(refresh_images, cat, srv_img)
-    btn_srv.click(refresh_images, cat, srv_img)
-
-    def preview_selected(c, rel):
-        if not rel:
-            return None
-        return str(dict(category_images(c, cfg)).get(rel, "")) or None
-
-    srv_img.change(preview_selected, [cat, srv_img], srv_preview)
+            btn_sel_up.click(do_sel_up, [cat, version, files],
+                             [up_out, err_box, err_detail])
 
     def _run_sel(c, v, paths):
         try:
@@ -77,19 +101,3 @@ def build(cfg):
         except Exception as exc:
             summary, detail = error_pair(exc)
             return [], summary, detail
-
-    def do_sel_srv(c, v, rel):
-        paths = []
-        if rel:
-            abs_map = dict(category_images(c, cfg))
-            if rel in abs_map:
-                paths = [str(abs_map[rel])]
-        return _run_sel(c, v, paths)
-
-    def do_sel_up(c, v, fs):
-        return _run_sel(c, v, [f.name for f in fs] if fs else [])
-
-    btn_sel_srv.click(do_sel_srv, [cat, version, srv_img],
-                      [sel_out, err_box, err_detail])
-    btn_sel_up.click(do_sel_up, [cat, version, files],
-                     [sel_out, err_box, err_detail])
