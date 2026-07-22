@@ -66,6 +66,7 @@ src/dino_exp/
 ## 环境坑（本机实测）
 
 - 网络：huggingface.co 不可达 → `HF_ENDPOINT=https://hf-mirror.com`；MVTec 官方源是 4.9GB 全量包，可用镜像单类别替代。
+- **git 使用 `C:\Program Files\Git\bin\git.exe`**（Git for Windows 官方版）。注意与 Git Bash 内置 git 区分：推送 GitHub 时实测官方版可用；hosts 需配 github.com 的有效 IP（网络时好时坏，推送失败先查 hosts 与连通性）。
 - Windows 终端 GBK：rich 日志可能 UnicodeEncodeError → 设 `PYTHONUTF8=1`。
 - 杀 Gradio 进程：Git Bash `kill` 可能杀不掉，`netstat -ano | grep 7860` 找 PID 后 `taskkill //PID <pid> //F`。
 - OpenVINO 导出是**版本快照**（库烘焙进图），再训练后需对新版本重新导出；`anomalib[openvino]` 为可选依赖，导出未端到端实测。
