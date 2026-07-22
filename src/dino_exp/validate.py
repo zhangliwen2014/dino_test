@@ -84,8 +84,9 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
     anno_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     pixel_pairs = []
+    input_size = getattr(model, "train_image_size", cfg.image_size)  # 按模型训练尺寸预处理
     for path, label_gt, defect_type in test_images_with_labels(category, cfg):
-        tensor = preprocess_image(path, cfg.image_size).to(device)
+        tensor = preprocess_image(path, input_size).to(device)
         with torch.no_grad():
             out = model.model(tensor)
         score = float(out.pred_score.item())

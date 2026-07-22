@@ -60,19 +60,38 @@ def _heatmap_name(path: str | Path, version: str) -> str:
 
 
 def load_model_for_version(category: str, version: str | None, cfg: Config) -> tuple[DualBankPatchcore, float, str]:
-    """加载指定（或当前）版本模型 + 阈值。返回 (model, threshold, version)。"""
+    """加载指定（或当前）版本模型 + 阈值。返回 (model, threshold, version)。
+
+    模型结构参数（骨干/layers/image_size）以版本目录 config.yaml 为准——
+    不同版本可用不同骨干与输入尺寸训练，推理时按各自训练配置还原。
+    """
+    import dataclasses
+
+    import yaml
+
     reg = Registry(cfg.models_root)
     version = version or reg.current(category)
     if version is None:
         raise DinoError(f"类别 '{category}' 没有任何模型版本。请先 `dino train --category {category}`。")
     vdir = reg.version_dir(category, version)
+    vcfg_file = vdir / "config.yaml"
+    run_cfg = cfg
+    if vcfg_file.exists():
+        saved = yaml.safe_load(vcfg_file.read_text(encoding="utf-8")) or {}
+        run_cfg = dataclasses.replace(
+            cfg,
+            backbone=saved.get("backbone", cfg.backbone),
+            layers=saved.get("layers", cfg.layers),
+            image_size=saved.get("image_size", cfg.image_size),
+        )
     from dino_exp.train import build_model
 
-    model = build_model(cfg)
+    model = build_model(run_cfg)
     load_banks(model.model, vdir)
     threshold = load_threshold(vdir)
     model.apply_threshold(threshold)
     model.eval()
+    model.train_image_size = run_cfg.image_size  # 供预处理按训练尺寸缩放（多尺寸版本共存）
     return model, threshold, version
 
 
@@ -142,10 +161,11 @@ def _infer_loaded(
 ) -> dict:
     """对已加载模型的纯推理（不含模型加载），供单图/批量共用。"""
     device = next(model.parameters()).device
+    input_size = getattr(model, "train_image_size", cfg.image_size)  # 优先按模型训练尺寸预处理
     with Image.open(path) as im:  # 一次打开：同时取原图尺寸与预处理输入
         im = im.convert("RGB")
         out_size = im.size  # (W, H)
-        tensor = _preprocess_pil(im, cfg.image_size).to(device)
+        tensor = _preprocess_pil(im, input_size).to(device)
     with torch.no_grad():
         out = model.model(tensor)
     score = float(out.pred_score.item())
