@@ -8,10 +8,19 @@ from dino_exp.webui.jobs import JobManager
 MENU = ["数据集", "训练", "验证", "测试与反馈", "系统设置"]
 
 _CSS = """
-/* CVAT 式左侧导航：去掉 Radio 的圆点，做成菜单按钮样式 */
+/* CVAT 式左侧导航：单列菜单按钮样式 */
+#side-nav .wrap,
+#side-nav > div,
+#side-nav fieldset > div {
+    display: flex !important;
+    flex-direction: column !important;
+    flex-wrap: nowrap !important;
+    gap: 2px;
+}
 #side-nav input[type="radio"] { display: none; }
 #side-nav label {
-    display: block; padding: 10px 14px; margin: 2px 0; border-radius: 6px;
+    display: block; width: 100%; box-sizing: border-box;
+    padding: 10px 14px; margin: 0; border-radius: 6px;
     cursor: pointer; font-size: 15px;
 }
 #side-nav label:has(input:checked) {
