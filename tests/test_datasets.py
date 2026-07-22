@@ -367,3 +367,16 @@ def test_import_images_invalid_zip_raises(tmp_path):
     bad.write_bytes(b"not a zip")
     with pytest.raises(DinoError, match="不是有效的 zip"):
         import_images([bad], "c", "ok", None, cfg)
+
+
+def test_category_cache_invalidation(tmp_path):
+    """导入后缓存失效，类别列表立即反映新类别（目录仍是唯一事实源）。"""
+    from dino_exp.datasets import dataset_categories
+
+    cfg = Config(data_root=tmp_path / "data")
+    cfg.data_root.mkdir()
+    assert dataset_categories(cfg) == []
+    src = tmp_path / "a.png"
+    src.write_bytes(b"x")
+    import_images([src], "newcat", "ok", None, cfg, split="train")
+    assert "newcat" in dataset_categories(cfg)

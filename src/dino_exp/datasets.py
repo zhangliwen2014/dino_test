@@ -10,6 +10,37 @@ from dino_exp.errors import DinoError
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 MVTEC_ROOT = Path("datasets/MVTecAD")  # anomalib 自动下载根目录
+
+
+class _TTLCache:
+    """简单 TTL 缓存：目录是唯一事实源，缓存只用于消除 UI 定时刷新的重复扫描。"""
+
+    def __init__(self, ttl: float = 5.0):
+        self.ttl = ttl
+        self._store: dict = {}
+
+    def get(self, key, fn):
+        import time
+
+        now = time.monotonic()
+        if key in self._store:
+            ts, val = self._store[key]
+            if now - ts < self.ttl:
+                return val
+        val = fn()
+        self._store[key] = (now, val)
+        return val
+
+    def invalidate(self) -> None:
+        self._store.clear()
+
+
+_scan_cache = _TTLCache(ttl=5.0)
+
+
+def invalidate_dataset_cache() -> None:
+    """数据变更（导入/修复/删除）后调用，使目录扫描缓存立即失效。"""
+    _scan_cache.invalidate()
 SPLIT_SEED = 42  # anomalib 切分种子：保证校准集可复现
 
 
@@ -51,6 +82,7 @@ def delete_category(category: str, cfg: Config) -> Path:
     if not target.is_dir():
         raise DinoError(f"类别 '{category}' 不存在（{target}）。请用 `dino dataset list` 查看现有类别。")
     shutil.rmtree(target)
+    invalidate_dataset_cache()
     return target
 
 
@@ -79,6 +111,7 @@ def fix_category(category: str, cfg: Config) -> dict:
     train_dir.mkdir(parents=True, exist_ok=True)
     for p in to_train:
         p.rename(train_dir / p.name)
+    invalidate_dataset_cache()
     return {"category": category, "moved_to_train": len(to_train), "kept_in_test": len(kept),
             "note": f"已按 8:2 整理：{len(to_train)} 张移入 train/good，{len(kept)} 张留在 test/good。"}
 
@@ -124,6 +157,17 @@ def list_datasets(cfg: Config) -> list[DatasetInfo]:
         except DinoError as e:
             rows.append(DatasetInfo(category=d.name, root=d, train_good=0, test_good=0, error=str(e)))
     return rows
+
+
+def dataset_categories(cfg: Config) -> list[str]:
+    """现有类别名列表（5 秒 TTL 缓存，供 UI 下拉高频刷新）。"""
+    def _scan():
+        root = cfg.data_root
+        if not root.is_dir():
+            return []
+        return sorted(d.name for d in root.iterdir() if d.is_dir())
+
+    return _scan_cache.get(("categories", str(cfg.data_root)), _scan)
 
 
 def _expand_inputs(srcs: list[str | Path]) -> list[Path]:
@@ -200,6 +244,7 @@ def import_images(
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
         out.append(dest)
+    invalidate_dataset_cache()
     return out
 
 
@@ -233,6 +278,7 @@ def import_mvtec(category: str, cfg: Config, force: bool = False) -> Path:
         if (src / "ground_truth").is_dir():
             shutil.copytree(src / "ground_truth", tmp / "mask")
         tmp.rename(dest)
+        invalidate_dataset_cache()
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
@@ -271,13 +317,17 @@ def category_images(category: str, cfg: Config) -> list[tuple[str, Path]]:
     """类别下全部图片的 (相对显示路径, 绝对路径) 列表，供 UI 选图（FR-3.2 选图验证）。
 
     相对路径形如 train/good/t0.png、test/broken/b0.png，按字典序排序。
+    带 5 秒 TTL 缓存（目录仍是唯一事实源，仅消除 UI 定时刷新的重复扫描）。
     """
-    info = dataset_info(category, cfg)
-    out = []
-    for p in sorted(info.root.rglob("*")):
-        if p.suffix.lower() in IMG_EXTS and p.is_file():
-            out.append((p.relative_to(info.root).as_posix(), p))
-    return out
+    def _scan():
+        info = dataset_info(category, cfg)
+        out = []
+        for p in sorted(info.root.rglob("*")):
+            if p.suffix.lower() in IMG_EXTS and p.is_file():
+                out.append((p.relative_to(info.root).as_posix(), p))
+        return out
+
+    return _scan_cache.get(("images", category, str(cfg.data_root)), _scan)
 
 
 def mask_path_for(image_path: Path, defect_type: str, info: DatasetInfo) -> Path | None:

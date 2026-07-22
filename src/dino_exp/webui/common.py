@@ -33,11 +33,10 @@ def error_text(exc: Exception) -> str:
 
 
 def category_choices(cfg) -> list[str]:
-    """data_root 下现有类别名列表（供下拉选择）。"""
-    root = cfg.data_root
-    if not root.is_dir():
-        return []
-    return sorted(d.name for d in root.iterdir() if d.is_dir())
+    """data_root 下现有类别名列表（供下拉选择；5 秒 TTL 缓存）。"""
+    from dino_exp.datasets import dataset_categories
+
+    return dataset_categories(cfg)
 
 
 def category_dropdown(cfg, *, allow_custom: bool = False, refresh: float = 5.0, **kw):
