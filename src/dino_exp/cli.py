@@ -186,9 +186,11 @@ def dataset_preview(cfg, category):
 @click.option("--image-size", type=int, default=None)
 @click.option("--tiles", "tile_mode", default=None,
               help="切块：off(不切)/auto(固定尺寸T)/2x2/3x3/4x4/6x6/8x8(旧网格)（默认取配置 tile_mode）")
+@click.option("--tile-px", "tile_px", type=int, default=None,
+              help="auto 模式目标 patch 覆盖像素 P（默认取配置 tile_target_patch_px=20；T=P×image_size/patch）")
 @click.pass_obj
 @_err
-def train(cfg, category, backbone, coreset, image_size, tile_mode):
+def train(cfg, category, backbone, coreset, image_size, tile_mode, tile_px):
     from dino_exp.config import validate_image_size
     from dino_exp.train import train_model
 
@@ -202,6 +204,8 @@ def train(cfg, category, backbone, coreset, image_size, tile_mode):
         cfg.image_size = image_size
     if tile_mode:
         cfg.tile_mode = tile_mode
+    if tile_px:
+        cfg.tile_target_patch_px = tile_px
     result = train_model(category, cfg)
     click.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
