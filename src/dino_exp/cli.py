@@ -229,6 +229,24 @@ def validate(cfg, category, version, full, images, errors_only):
         click.echo(f"{r['label_pred']}\tscore={r['score']:.4f}\tgt={r['defect_type']}\t{r['path']}")
 
 
+@main.command()
+@click.option("--category", required=True)
+@click.option("--versions", default=None, help="逗号分隔版本号（默认全部版本），如 v003,v006")
+@click.option("--concurrency", default="1,4,8", show_default=True, help="并发档位，逗号分隔")
+@click.option("--samples", type=int, default=30, show_default=True, help="抽样图片数")
+@click.pass_obj
+@_err
+def perf(cfg, category, versions, concurrency, samples):
+    """性能测试：多版本 × 多并发推理基准对比。"""
+    from dino_exp.perf import format_table, run_perf, save_perf_report
+
+    vers = [v.strip() for v in versions.split(",")] if versions else None
+    conc = [int(x) for x in concurrency.split(",")]
+    report = run_perf(category, vers, conc, samples, cfg)
+    click.echo(format_table(report))
+    click.echo(f"\n报告已保存: {save_perf_report(report)}")
+
+
 @main.command(name="test")
 @click.option("--category", required=True)
 @click.option("--image", "images", multiple=True, required=True)

@@ -2,10 +2,10 @@ import gradio as gr
 
 from dino_exp.config import Config
 from dino_exp.logs import get_logger, setup_logging
-from dino_exp.webui import dataset_tab, settings_tab, test_tab, train_tab, validate_tab
+from dino_exp.webui import dataset_tab, perf_tab, settings_tab, test_tab, train_tab, validate_tab
 from dino_exp.webui.jobs import JobManager
 
-MENU = ["数据集", "训练", "验证", "测试与反馈", "系统设置"]
+MENU = ["数据集", "训练", "验证", "测试与反馈", "性能测试", "系统设置"]
 
 _CSS = """
 /* CVAT 式左侧导航：单列菜单按钮样式 */
@@ -55,6 +55,9 @@ def launch(cfg: Config, port: int = 7860, host: str = "127.0.0.1") -> None:
                 groups.append(g)
                 with gr.Group(visible=False) as g:
                     test_tab.build(cfg)
+                groups.append(g)
+                with gr.Group(visible=False) as g:
+                    perf_tab.build(cfg, jm)
                 groups.append(g)
                 with gr.Group(visible=False) as g:
                     settings_tab.build(cfg)
