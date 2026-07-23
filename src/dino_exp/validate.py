@@ -57,6 +57,80 @@ def aggregate_metrics(rows: list[dict], threshold: float, pixel_pairs: list[tupl
     return metrics
 
 
+def relabel_rows(rows: list[dict], threshold: float) -> list[dict]:
+    """按给定阈值重算每行的判定（阈值界面调整时用，不改动原始分数）。"""
+    out = []
+    for r in rows:
+        r = dict(r)
+        r["label_pred"] = decide_label(r["score"], threshold)
+        out.append(r)
+    return out
+
+
+def plot_score_distribution(rows: list[dict], threshold: float, out_path: str | Path) -> Path:
+    """OK/NG 分数分布直方图 + 阈值线（选阈值的直观依据）。"""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    ok = [r["score"] for r in rows if r["label_gt"] == 0]
+    ng = [r["score"] for r in rows if r["label_gt"] == 1]
+    fig, ax = plt.subplots(figsize=(7, 3.5), dpi=110)
+    bins = 20
+    if ok:
+        ax.hist(ok, bins=bins, alpha=0.7, color="#16a34a", label=f"OK ({len(ok)})")
+    if ng:
+        ax.hist(ng, bins=bins, alpha=0.7, color="#dc2626", label=f"NG ({len(ng)})")
+    ax.axvline(threshold, color="#111", linestyle="--", linewidth=1.5,
+               label=f"threshold={threshold:.2f}")
+    ax.set_xlabel("anomaly score")
+    ax.set_ylabel("count")
+    ax.legend()
+    fig.tight_layout()
+    out = Path(out_path)
+    fig.savefig(out)
+    plt.close(fig)
+    return out
+
+
+def plot_roc(rows: list[dict], out_path: str | Path) -> Path | None:
+    """ROC 曲线（需要同时有 OK 与 NG 标签，否则返回 None）。"""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from torchmetrics import AUROC
+
+    labels = [r["label_gt"] for r in rows]
+    if len(set(labels)) < 2:
+        return None
+    scores = torch.tensor([r["score"] for r in rows])
+    labels_t = torch.tensor(labels)
+    auroc = float(AUROC(task="binary")((scores - scores.min()) / (scores.max() - scores.min() + 1e-12), labels_t))
+    ths = sorted(set(scores.tolist()), reverse=True)
+    tpr, fpr = [1.0], [1.0]
+    for t in ths:
+        preds = [1 if s >= t else 0 for s in scores.tolist()]
+        tp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 1)
+        fp = sum(1 for p, l in zip(preds, labels) if p == 1 and l == 0)
+        tpr.append(tp / max(1, sum(labels)))
+        fpr.append(fp / max(1, len(labels) - sum(labels)))
+    tpr.append(0.0)
+    fpr.append(0.0)
+    fig, ax = plt.subplots(figsize=(4.5, 4), dpi=110)
+    ax.plot(fpr, tpr, marker=".", color="#2563eb", label=f"AUROC={auroc:.3f}")
+    ax.plot([0, 1], [0, 1], "--", color="#999")
+    ax.set_xlabel("FPR")
+    ax.set_ylabel("TPR")
+    ax.legend()
+    fig.tight_layout()
+    out = Path(out_path)
+    fig.savefig(out)
+    plt.close(fig)
+    return out
+
+
 def filter_errors(rows: list[dict]) -> list[dict]:
     return [r for r in rows if r["label_pred"] != ("NG" if r["label_gt"] == 1 else "OK")]
 
@@ -121,12 +195,18 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
 
 
 def validate_full(category: str, version: str | None, cfg: Config) -> dict:
-    """全量验证（FR-3.1/FR-3.4）：聚合指标（有 mask 时含像素级）+ 逐图结果写入版本目录 validation.json。"""
+    """全量验证（FR-3.1/FR-3.4）：聚合指标（有 mask 时含像素级）+ 逐图结果写入版本目录 validation.json。
+
+    同时生成分数分布图与 ROC 曲线（有双类标签时）供界面查看/调阈值。
+    """
     rows, threshold, version, pixel_pairs = score_test_set(category, version, cfg)
     metrics = aggregate_metrics(rows, threshold, pixel_pairs=pixel_pairs)
     vdir = Registry(cfg.models_root).version_dir(category, version)
     save_validation_report(vdir, metrics, rows)
-    return {"version": version, "metrics": metrics, "rows": rows}
+    dist_path = plot_score_distribution(rows, threshold, vdir / "validation_dist.png")
+    roc_path = plot_roc(rows, vdir / "validation_roc.png")
+    return {"version": version, "metrics": metrics, "rows": rows,
+            "dist_plot": str(dist_path), "roc_plot": str(roc_path) if roc_path else None}
 
 
 def validate_images(category: str, version: str | None, paths: list[str], cfg: Config) -> list[dict]:

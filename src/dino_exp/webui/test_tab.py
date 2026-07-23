@@ -30,6 +30,7 @@ def build(cfg):
     with gr.Row():
         cat = category_dropdown(cfg, label="类别（选择已导入的数据集）")
         version = gr.Dropdown(label="版本（留空=当前）", choices=[], value=None)
+        thr_override = gr.Number(label="阈值（留空=自动）", value=None)
 
     def _versions(c):
         return gr.update(choices=Registry(cfg.models_root).list(c) if c else [])
@@ -86,35 +87,39 @@ def build(cfg):
 
     srv_img.change(preview_selected, [cat, srv_img], srv_preview)
 
-    def _run_test(c, v, path):
+    def _run_test(c, v, path, thr):
         if not path:
             return "", None, None, 0.0, "", "", "请先选择或上传图片。", ""
         try:
-            from dino_exp.infer import verdict_frame
+            from dino_exp.infer import decide_label, verdict_frame
 
             r = infer_image(path, v or None, category=c, cfg=cfg)
-            return (_verdict_html(r["label"], r["score"], r["threshold"], r.get("infer_ms")),
+            label, threshold = r["label"], r["threshold"]
+            if thr:  # 手动阈值：重算判定（仅本次查看）
+                threshold = float(thr)
+                label = decide_label(r["score"], threshold)
+            return (_verdict_html(label, r["score"], threshold, r.get("infer_ms")),
                     r["annotated_path"],
-                    verdict_frame(r["heatmap_path"], r["label"]),  # 热力图+判定色外框
-                    r["score"], r["label"], path, "", "")
+                    verdict_frame(r["heatmap_path"], label),
+                    r["score"], label, path, "", "")
         except Exception as exc:
             summary, detail = error_pair(exc)
             return "", None, None, 0.0, "", "", summary, detail
 
-    def do_test_srv(c, v, rel):
+    def do_test_srv(c, v, rel, thr):
         path = None
         if rel:
             abs_map = dict(category_images(c, cfg))
             path = str(abs_map.get(rel, "")) or None
-        return _run_test(c, v, path)
+        return _run_test(c, v, path, thr)
 
-    def do_test_up(c, v, path):
-        return _run_test(c, v, path)
+    def do_test_up(c, v, path, thr):
+        return _run_test(c, v, path, thr)
 
-    btn_test_srv.click(do_test_srv, [cat, version, srv_img],
+    btn_test_srv.click(do_test_srv, [cat, version, srv_img, thr_override],
                        [verdict, anno_out, heat_out, state_score, state_pred, state_path,
                         err_box, err_detail])
-    btn_test_up.click(do_test_up, [cat, version, img],
+    btn_test_up.click(do_test_up, [cat, version, img, thr_override],
                       [verdict, anno_out, heat_out, state_score, state_pred, state_path,
                        err_box, err_detail])
 

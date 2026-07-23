@@ -82,28 +82,44 @@ def build(cfg):
     with gr.Tabs():
         # ---------------- 全量验证 ----------------
         with gr.Tab("全量验证"):
-            errors_only = gr.Checkbox(label="只看误判", value=False)
+            with gr.Row():
+                errors_only = gr.Checkbox(label="只看误判", value=False)
+                thr_override = gr.Number(label="阈值调整（留空=自动，仅影响本次查看）",
+                                         value=None, scale=2)
             btn_full = gr.Button("开始全量验证", variant="primary")
             metrics = gr.JSON(label="聚合指标")
+            with gr.Row():
+                dist_img = gr.Image(label="分数分布（含阈值线）", height=260)
+                roc_img = gr.Image(label="ROC 曲线", height=260)
             rows_out = gr.Dataframe(headers=["判定", "分数", "GT", "标记图", "热力图"],
                                     datatype=["html", "number", "str", "str", "str"],
                                     label="逐图结果（点击行查看）")
             full_update, full_outputs, full_rows, full_idx = make_result_view()
 
-            def do_full(c, v, eo):
+            def do_full(c, v, eo, thr):
                 try:
+                    from dino_exp.validate import aggregate_metrics, relabel_rows
+
                     report = validate_full(c, v or None, cfg)
-                    rows = filter_errors(report["rows"]) if eo else report["rows"]
+                    rows = report["rows"]
+                    m = report["metrics"]
+                    if thr:  # 手动阈值：重算判定与指标（仅本次查看，不改版本）
+                        rows = relabel_rows(rows, float(thr))
+                        m = aggregate_metrics(rows, float(thr))
+                        m["threshold_manual"] = float(thr)
+                    rows = filter_errors(rows) if eo else rows
                     table = [[_label_html(r["label_pred"]), round(r["score"], 4), r["defect_type"],
                               r.get("annotated_path", ""), r.get("heatmap_path", "")] for r in rows]
                     preview = full_update(rows, 0)
-                    return (report["metrics"], table, "", "", rows, *preview)
+                    return (m, report.get("dist_plot"), report.get("roc_plot"),
+                            table, "", "", rows, *preview)
                 except Exception as exc:
                     summary, detail = error_pair(exc)
-                    return None, [], summary, detail, [], None, None, "0/0", 0
+                    return None, None, None, [], summary, detail, [], None, None, "0/0", 0
 
-            btn_full.click(do_full, [cat, version, errors_only],
-                           [metrics, rows_out, err_box, err_detail, full_rows, *full_outputs])
+            btn_full.click(do_full, [cat, version, errors_only, thr_override],
+                           [metrics, dist_img, roc_img, rows_out, err_box, err_detail,
+                            full_rows, *full_outputs])
 
             def on_full_select(rows, evt: gr.SelectData):
                 return full_update(rows, _row_idx(evt))
