@@ -89,7 +89,7 @@ def score_test_set(category: str, version: str | None, cfg: Config) -> tuple[lis
     rows = []
     pixel_pairs = []
     for path, label_gt, defect_type in test_images_with_labels(category, cfg):
-        score, amap_full = score_one(model, path, cfg)  # 自动按版本配置切块
+        score, amap_full, _ = score_one(model, path, cfg)  # 自动按版本配置切块
         label_pred = decide_label(score, threshold)
         # 生成标记图（原图+缺陷框+判定外框）与热力图，供验证结果点击预览
         annotated, _ = annotate_and_frame(path, amap_full.cpu(), threshold, label_pred)
