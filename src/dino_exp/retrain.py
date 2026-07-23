@@ -84,7 +84,9 @@ def retrain(category: str, cfg: Config) -> dict:
                 parts = [im]
         embs, scores = [], []
         for part in parts:
-            tensor = preprocess_image(part, input_size).to(device)
+            from dino_exp.infer import _preprocess_pil
+
+            tensor = _preprocess_pil(part, input_size).to(device)  # part 是 PIL 图片对象
             emb = extract_embeddings(model.model, tensor)
             if k is not None:
                 ps, _ = model.model.nearest_neighbors(emb, n_neighbors=1)
