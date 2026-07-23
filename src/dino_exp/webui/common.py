@@ -39,15 +39,16 @@ def category_choices(cfg) -> list[str]:
     return dataset_categories(cfg)
 
 
-def verdict_html(label: str, score: float, threshold: float) -> str:
-    """OK/NG 彩色判定徽章（绿=OK 红=NG），测试页/验证页共用。"""
+def verdict_html(label: str, score: float, threshold: float, infer_ms: float | None = None) -> str:
+    """OK/NG 彩色判定徽章（绿=OK 红=NG），测试页/验证页共用。可附推理耗时（不含读图）。"""
     if not label:
         return ""
     color = "#16a34a" if label == "OK" else "#dc2626"
+    timing = f" · 推理耗时 {infer_ms:.0f} ms（不含读图）" if infer_ms is not None else ""
     return (
         f"<div style='display:inline-block;padding:8px 24px;border-radius:8px;"
         f"background:{color};color:#fff;font-size:26px;font-weight:700'>{label}</div>"
-        f"<div style='margin-top:6px;color:#666'>异常分数 {score:.4f} / 阈值 {threshold:.4f}</div>"
+        f"<div style='margin-top:6px;color:#666'>异常分数 {score:.4f} / 阈值 {threshold:.4f}{timing}</div>"
     )
 
 

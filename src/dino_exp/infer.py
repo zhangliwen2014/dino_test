@@ -157,12 +157,14 @@ def annotate_and_frame(image_path: str | Path, anomaly_map: torch.Tensor, thresh
     return annotated, boxes
 
 
-def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tensor"]:
+def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tensor", float]:
     """单图打分：按模型版本配置自动决定是否切块（图片大于模型输入才切）。
 
-    返回 (score, anomaly_map)。切块时 score = 各块最大分，amap 为拼接后的整图热图；
-    不切块时与普通推理一致。特征尺度与建库时一致（train_tile_grid 随版本配置还原）。
+    返回 (score, anomaly_map, infer_ms)。infer_ms 为预处理+前向+拼接耗时
+    （不含从磁盘读取图片）。切块时 score = 各块最大分，amap 为拼接后的整图热图。
     """
+    import time
+
     from dino_exp.tiles import clamp_grid, should_tile, split_image, stitch_anomaly_maps
 
     device = next(model.parameters()).device
@@ -171,6 +173,7 @@ def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tenso
     overlap = getattr(model, "train_tile_overlap", 0.1)
     with Image.open(path) as im:
         im = im.convert("RGB")
+        t0 = time.perf_counter()  # 读图完成后开始计时
         grid = clamp_grid(grid, im.size[0], im.size[1], input_size)
         if should_tile(im.size[0], im.size[1], input_size, grid):
             tiles = split_image(im, grid, overlap)
@@ -180,11 +183,11 @@ def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tenso
             score = float(out.pred_score.max().item())
             amaps = [out.anomaly_map[i].squeeze(0) for i in range(len(tiles))]
             amap = stitch_anomaly_maps(amaps, [b for _, b in tiles], grid, im.size)
-            return score, amap
+            return score, amap, (time.perf_counter() - t0) * 1000
         tensor = _preprocess_pil(im, input_size).to(device)
     with torch.no_grad():
         out = model.model(tensor)
-    return float(out.pred_score.item()), out.anomaly_map
+    return float(out.pred_score.item()), out.anomaly_map, (time.perf_counter() - t0) * 1000
 
 
 def _infer_loaded(
@@ -201,7 +204,7 @@ def _infer_loaded(
     """
     with Image.open(path) as im:
         out_size = im.size  # (W, H)
-    score, amap = score_one(model, path, cfg)
+    score, amap, infer_ms = score_one(model, path, cfg)
     hdir = Path(heatmap_dir)
     hdir.mkdir(parents=True, exist_ok=True)
     heatmap_path = hdir / _heatmap_name(path, version)
@@ -214,6 +217,7 @@ def _infer_loaded(
         "label": label,
         "score": score,
         "threshold": threshold,
+        "infer_ms": infer_ms,
         "heatmap_path": str(heatmap_path),
         "annotated_path": str(annotated_path),
         "defect_boxes": boxes,

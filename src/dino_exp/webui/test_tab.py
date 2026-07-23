@@ -21,9 +21,9 @@ def _initial_images(cfg) -> list[str]:
         return []
 
 
-def _verdict_html(label: str, score: float, threshold: float) -> str:
+def _verdict_html(label: str, score: float, threshold: float, infer_ms: float | None = None) -> str:
     """OK/NG 彩色判定徽章（绿=OK 红=NG），委托公共实现。"""
-    return verdict_html(label, score, threshold)
+    return verdict_html(label, score, threshold, infer_ms)
 
 
 def build(cfg):
@@ -93,7 +93,7 @@ def build(cfg):
             from dino_exp.infer import verdict_frame
 
             r = infer_image(path, v or None, category=c, cfg=cfg)
-            return (_verdict_html(r["label"], r["score"], r["threshold"]),
+            return (_verdict_html(r["label"], r["score"], r["threshold"], r.get("infer_ms")),
                     r["annotated_path"],
                     verdict_frame(r["heatmap_path"], r["label"]),  # 热力图+判定色外框
                     r["score"], r["label"], path, "", "")

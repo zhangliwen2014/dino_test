@@ -239,7 +239,8 @@ def test_cmd(cfg, category, images, version):
     from dino_exp.infer import infer_batch
 
     for r in infer_batch(list(images), version, category=category, cfg=cfg):
-        click.echo(f"{r['label']}\tscore={r['score']:.4f}\tthreshold={r['threshold']:.4f}\t{r['heatmap_path']}")
+        ms = f"\t{ r['infer_ms']:.0f}ms" if r.get("infer_ms") is not None else ""
+        click.echo(f"{r['label']}\tscore={r['score']:.4f}\tthreshold={r['threshold']:.4f}{ms}\t{r['heatmap_path']}")
 
 
 # ---------- feedback / retrain / versions ----------
