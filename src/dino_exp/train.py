@@ -204,7 +204,7 @@ def train_model(category: str, cfg: Config, log=None) -> dict:
 
         rows = []
         for p, gt, dt in test_images_with_labels(category, cfg):
-            s, _ = score_one(model, p, cfg)
+            s, _, _ = score_one(model, p, cfg)
             rows.append({"label_gt": gt, "score": s})
         metrics = {"degraded": True} if info.degraded else aggregate_metrics(rows, threshold)
     elif info.degraded:
