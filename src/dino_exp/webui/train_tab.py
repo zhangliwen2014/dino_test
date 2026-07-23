@@ -17,8 +17,9 @@ def build(cfg, jm: JobManager):
     coreset = gr.Slider(0.01, 1.0, value=cfg.coreset_sampling_ratio, label="coreset 采样率")
     image_size = gr.Number(value=cfg.image_size, label="输入尺寸（patch 整数倍）")
     tiles = gr.Dropdown(
-        [("off：不切块", "off"), ("auto：自动推荐网格", "auto"),
-         ("2x2", "2x2"), ("3x3", "3x3"), ("4x4", "4x4"), ("6x6", "6x6"), ("8x8", "8x8")],
+        [("off：不切块", "off"), ("auto：固定尺寸切块（推荐）", "auto"),
+         ("2x2（旧网格）", "2x2"), ("3x3（旧网格）", "3x3"), ("4x4（旧网格）", "4x4"),
+         ("6x6（旧网格）", "6x6"), ("8x8（旧网格）", "8x8")],
         value=cfg.tile_mode, label="切块（大图提升小缺陷分辨率）")
     btn = gr.Button("开始训练", variant="primary")
     status = gr.Textbox(label="状态", interactive=False)

@@ -89,7 +89,11 @@ def run_perf(category: str, versions: list[str] | None, concurrency: list[int],
         model = model.to(device).eval()
         grid = getattr(model, "train_tile_grid", (1, 1))
         size = getattr(model, "train_image_size", cfg.image_size)
-        entry = {"image_size": size, "tile_grid": list(grid), "runs": []}
+        scheme = getattr(model, "train_tile_scheme", "grid")
+        tsize = getattr(model, "train_tile_size", None)
+        tile_desc = f"T{tsize}" if scheme == "size" and tsize else f"{grid[0]}x{grid[1]}"
+        entry = {"image_size": size, "tile_grid": list(grid), "tile_scheme": scheme,
+                 "tile_desc": tile_desc, "runs": []}
         for c in concurrency:
             entry["runs"].append(run_perf_one(model, image_paths, c, cfg))
         report["versions"][ver] = entry
@@ -102,14 +106,14 @@ def run_perf(category: str, versions: list[str] | None, concurrency: list[int],
 def format_table(report: dict) -> str:
     """把 run_perf 报告格式化为对比表格文本。"""
     lines = [f"类别: {report['category']}  样本: {report['samples']} 张  设备: {report['device']}", ""]
-    header = f"{'版本':<8}{'输入':<7}{'网格':<9}{'并发':<5}{'吞吐(张/s)':<11}{'均':<8}{'p50':<8}{'p95':<8}{'显存(MB)':<10}"
+    header = f"{'版本':<8}{'输入':<7}{'切块':<9}{'并发':<5}{'吞吐(张/s)':<11}{'均':<8}{'p50':<8}{'p95':<8}{'显存(MB)':<10}"
     lines.append(header)
     lines.append("-" * len(header))
     for ver, entry in report["versions"].items():
-        grid = f"{entry['tile_grid'][0]}x{entry['tile_grid'][1]}"
+        tile = entry.get("tile_desc", f"{entry['tile_grid'][0]}x{entry['tile_grid'][1]}")
         for run in entry["runs"]:
             lines.append(
-                f"{ver:<8}{entry['image_size']:<7}{grid:<9}{run['concurrency']:<5}"
+                f"{ver:<8}{entry['image_size']:<7}{tile:<9}{run['concurrency']:<5}"
                 f"{run['throughput_ips']:<11}{run['latency_avg_ms']:<8}{run['latency_p50_ms']:<8}"
                 f"{run['latency_p95_ms']:<8}{run.get('gpu_mem_peak_mb', '-')}"
             )

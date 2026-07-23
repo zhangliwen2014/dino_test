@@ -93,10 +93,20 @@ def load_model_for_version(category: str, version: str | None, cfg: Config) -> t
     model.apply_threshold(threshold)
     model.eval()
     model.train_image_size = run_cfg.image_size  # 供预处理按训练尺寸缩放（多尺寸版本共存）
-    # 切块配置随版本还原（推理自动切块）
+    # 切块配置随版本还原（推理自动切块；tile_scheme 缺省 "grid" 兼容旧版本）
+    model.train_tile_scheme = saved.get("tile_scheme", "grid")
     tg = saved.get("tile_grid", [1, 1])
     model.train_tile_grid = (int(tg[0]), int(tg[1]))
     model.train_tile_overlap = float(saved.get("tile_overlap", 0.1))
+    if model.train_tile_scheme == "size":
+        model.train_tile_target_patch_px = int(saved.get("tile_target_patch_px", cfg.tile_target_patch_px))
+        ts = saved.get("tile_size")
+        if ts is None:  # 缺字段兜底：按版本骨干/输入尺寸重算 T
+            from dino_exp.tiles import compute_tile_size
+
+            ts = compute_tile_size(model.train_tile_target_patch_px,
+                                   run_cfg.image_size, run_cfg.backbone_spec.patch_size)
+        model.train_tile_size = int(ts)
     return model, threshold, version
 
 
@@ -157,11 +167,59 @@ def annotate_and_frame(image_path: str | Path, anomaly_map: torch.Tensor, thresh
     return annotated, boxes
 
 
+def _score_one_fixed(model, im: Image.Image, input_size: int, device, t0: float):
+    """固定尺寸切块路径（tile_scheme="size"）：小图先放大到短边 ≥ T，再滑窗切块。
+
+    所有块统一 T×T → resize 到 input_size → 一次前向；score = 各块最大分。
+    """
+    import time
+
+    from dino_exp.tiles import split_fixed, stitch_fixed, upscale_small
+
+    tile_size = int(getattr(model, "train_tile_size"))
+    overlap = float(getattr(model, "train_tile_overlap", 0.1))
+    margin = 2 * int(getattr(model, "train_tile_target_patch_px", 20))
+    work = upscale_small(im, tile_size, margin)
+    tiles, _pad = split_fixed(work, tile_size, overlap, margin=margin)
+    batch = torch.cat([_preprocess_pil(t, input_size) for t, _ in tiles]).to(device)
+    with torch.no_grad():
+        out = model.model(batch)
+    score = float(out.pred_score.max().item())
+    amaps = [out.anomaly_map[i].squeeze(0) for i in range(len(tiles))]
+    amap = stitch_fixed(amaps, [b for _, b in tiles], work.size)
+    return score, amap, (time.perf_counter() - t0) * 1000
+
+
+def tile_images_for_model(model, im: Image.Image, cfg: Config) -> list[Image.Image]:
+    """按模型版本切块方案把 PIL 图切成块列表（不切块时返回 [im]）。
+
+    retrain 反馈特征提取用，与 score_one 同口径（scheme 分流 + 小图放大 + pad）。
+    """
+    input_size = getattr(model, "train_image_size", cfg.image_size)
+    overlap = float(getattr(model, "train_tile_overlap", 0.1))
+    if getattr(model, "train_tile_scheme", "grid") == "size":
+        from dino_exp.tiles import split_fixed, upscale_small
+
+        tile_size = int(getattr(model, "train_tile_size"))
+        margin = 2 * int(getattr(model, "train_tile_target_patch_px", 20))
+        work = upscale_small(im, tile_size, margin)
+        tiles, _pad = split_fixed(work, tile_size, overlap, margin=margin)
+        return [t for t, _ in tiles]
+    from dino_exp.tiles import clamp_grid, should_tile, split_image
+
+    grid = getattr(model, "train_tile_grid", (1, 1))
+    grid = clamp_grid(grid, im.size[0], im.size[1], input_size)
+    if should_tile(im.size[0], im.size[1], input_size, grid):
+        return [t for t, _ in split_image(im, grid, overlap)]
+    return [im]
+
+
 def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tensor", float]:
     """单图打分：按模型版本配置自动决定是否切块（图片大于模型输入才切）。
 
     返回 (score, anomaly_map, infer_ms)。infer_ms 为预处理+前向+拼接耗时
     （不含从磁盘读取图片）。切块时 score = 各块最大分，amap 为拼接后的整图热图。
+    tile_scheme="size"（固定尺寸）与旧 "grid"（比例网格，兼容）按版本配置分流。
     """
     import time
 
@@ -174,6 +232,8 @@ def score_one(model, path: str | Path, cfg: Config) -> tuple[float, "torch.Tenso
     with Image.open(path) as im:
         im = im.convert("RGB")
         t0 = time.perf_counter()  # 读图完成后开始计时
+        if getattr(model, "train_tile_scheme", "grid") == "size":
+            return _score_one_fixed(model, im, input_size, device, t0)
         grid = clamp_grid(grid, im.size[0], im.size[1], input_size)
         if should_tile(im.size[0], im.size[1], input_size, grid):
             tiles = split_image(im, grid, overlap)

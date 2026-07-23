@@ -52,7 +52,7 @@ src/dino_exp/
 7. **UI/CLI 都是薄封装**：业务逻辑只进应用层（datasets/train/validate/infer/retrain/feedback/registry），双入口调用同一函数。
 8. **原子写**：版本库（tmp 目录+rename，current 最后更新）、反馈 JSONL（tmp+os.replace）、数据导入（先全量校验后拷贝）。新写文件路径遵循同样标准。
 9. **git**：`data/ models/ feedback/ results/ outputs/ datasets/ wheels/ logs/` 均已 gitignore（根锚定），运行时产物不入库；commit 前缀 `feat:/fix:/test:/docs:/chore:`。
-10. **切块（tiling）**：训练/推理必须同尺度（网格+重叠率随版本 config.yaml 保存与还原，`model.train_tile_grid/train_tile_overlap/train_image_size`）；只有图片大于模型输入才切（`should_tile`），小图直推；网格密度受 `clamp_grid` 钳制；打分统一走 `infer.score_one`（自动切块），不要绕开它直接调 model；拼接用核心区归属（`stitch_anomaly_maps`）。
+10. **切块（tiling）**：训练/推理必须同尺度；打分统一走 `infer.score_one`（按版本 `tile_scheme` 自动分流），不要绕开它直接调 model。两种方案：**固定尺寸（`tile_scheme: "size"`，新训练 `tile_mode=auto` 的默认，设计 docs/superpowers/specs/2026-07-23-fixed-size-tiling-design.md）**——T=P×(image_size/patch_size) 类别级常数，滑窗贴边锚定（`split_fixed`），重叠区中点归属（`stitch_fixed`），长条图短边 reflect pad、小图各向同性放大到短边 ≥ T（`upscale_small`，margin=2P）；**比例网格（`"grid"`，仅旧版本兼容）**——网格+重叠率随版本 config.yaml 保存与还原（`model.train_tile_grid/train_tile_overlap`），`should_tile` 判定、`clamp_grid` 钳制密度、核心区归属拼接（`stitch_anomaly_maps`）。版本 config.yaml 键：`tile_scheme/tile_grid/tile_size/tile_overlap/tile_target_patch_px`（缺 `tile_scheme` 一律按 `"grid"` 处理）；retrain 经 `load_model_for_version` 还原属性自动继承父版本方案，反馈特征提取走 `infer.tile_images_for_model`。
 11. **YAML 陷阱**：`tile_mode: off` 在 YAML 里是布尔 False，配置文件必须写 `"off"`（load_config 有兼容兜底，新增布尔语义的字符串配置同理）。
 
 ## anomalib 2.5.1 关键事实（已源码核实，勿凭记忆改动）

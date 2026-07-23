@@ -185,7 +185,7 @@ def dataset_preview(cfg, category):
 @click.option("--coreset", "coreset", type=float, default=None)
 @click.option("--image-size", type=int, default=None)
 @click.option("--tiles", "tile_mode", default=None,
-              help="切块：off/auto/2x2/3x3/4x4/6x6/8x8（默认取配置 tile_mode）")
+              help="切块：off(不切)/auto(固定尺寸T)/2x2/3x3/4x4/6x6/8x8(旧网格)（默认取配置 tile_mode）")
 @click.pass_obj
 @_err
 def train(cfg, category, backbone, coreset, image_size, tile_mode):

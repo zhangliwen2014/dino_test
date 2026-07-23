@@ -90,9 +90,14 @@ def finalize_version(
                 "bank_cap_ratio": cfg.bank_cap_ratio,
                 "defect_topk": cfg.defect_topk,
                 "threshold_sigma": cfg.threshold_sigma,
-                # 切块配置随版本保存（推理按此自动切块；从模型属性取已解析的网格）
+                # 切块配置随版本保存（推理按此自动切块；从模型属性取已解析的方案）
+                "tile_scheme": getattr(model, "train_tile_scheme", "grid"),
                 "tile_grid": list(getattr(model, "train_tile_grid", (1, 1))),
                 "tile_overlap": getattr(model, "train_tile_overlap", cfg.tile_overlap),
+                # 固定尺寸方案（tile_scheme="size"）的类别级常数；grid/不切版本为 None
+                "tile_size": getattr(model, "train_tile_size", None),
+                "tile_target_patch_px": getattr(model, "train_tile_target_patch_px",
+                                                cfg.tile_target_patch_px),
             },
             metrics={**metrics, "threshold": threshold},
             meta={"parent": parent, "feedback_applied": feedback_applied},
@@ -119,21 +124,43 @@ def train_model(category: str, cfg: Config, log=None) -> dict:
     info = dataset_info(category, cfg)  # 结构校验前置（NFR-4）
     log(f"校验数据集... train/good={info.train_good} test/good={info.test_good}")
 
-    # 解析切块网格：auto 按首张训练图尺寸推荐；图片小于模型输入则不切
+    # 解析切块方案：auto → 固定尺寸 T（新方案，设计 2026-07-23）；
+    # 显式 NxN → 旧比例网格（向后兼容）；图片过小则不切
     from PIL import Image as _Img
 
     from dino_exp.datasets import category_images, test_images_with_labels
-    from dino_exp.tiles import auto_grid, parse_tile_mode, should_tile, split_image
+    from dino_exp.tiles import (
+        compute_tile_size,
+        parse_tile_mode,
+        should_tile,
+        split_fixed,
+        split_image,
+        upscale_small,
+    )
 
+    tile_scheme = "off"
     tile_grid = (1, 1)
+    tile_size = None
     train_imgs = []
     if cfg.tile_mode != "off":
         train_imgs = [p for rel, p in category_images(category, cfg) if rel.startswith("train/good")]
         with _Img.open(train_imgs[0]) as im0:
             w0, h0 = im0.size
-        if should_tile(w0, h0, cfg.image_size, (2, 2)):
-            parsed = parse_tile_mode(cfg.tile_mode)
-            tile_grid = auto_grid(w0, h0, cfg.image_size, cfg.tile_target_patch_px) if parsed == "auto" else parsed
+        parsed = parse_tile_mode(cfg.tile_mode)
+        if parsed == "auto":
+            # 固定尺寸 T 为类别级常数（P × image_size/patch_size），不依赖代表图尺寸
+            tile_size = compute_tile_size(cfg.tile_target_patch_px, cfg.image_size,
+                                          cfg.backbone_spec.patch_size)
+            margin = 2 * cfg.tile_target_patch_px
+            if w0 >= tile_size + margin or h0 >= tile_size + margin:
+                tile_scheme = "size"
+                log(f"切块模式 auto → 固定尺寸 T={tile_size}（图 {w0}x{h0}，重叠 {cfg.tile_overlap}）")
+            else:
+                tile_size = None
+                log(f"图片 {w0}x{h0} 两轴均小于 T+2P（T={tile_size}），无需切块")
+        elif should_tile(w0, h0, cfg.image_size, (2, 2)):
+            tile_scheme = "grid"
+            tile_grid = parsed
             log(f"切块模式 {cfg.tile_mode} → 网格 {tile_grid[0]}x{tile_grid[1]}（图 {w0}x{h0}，重叠 {cfg.tile_overlap}）")
         else:
             log(f"图片 {w0}x{h0} 不大于模型输入 {cfg.image_size}，无需切块")
@@ -148,11 +175,33 @@ def train_model(category: str, cfg: Config, log=None) -> dict:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
     log(f"加载骨干与数据...（设备: {device}）")
     model = build_model(cfg)
+    model.train_tile_scheme = tile_scheme
     model.train_tile_grid = tile_grid
     model.train_tile_overlap = cfg.tile_overlap
+    if tile_size is not None:
+        model.train_tile_size = tile_size
+        model.train_tile_target_patch_px = cfg.tile_target_patch_px
 
-    if tile_grid != (1, 1):
-        # 切块建库：训练/推理同尺度，记忆库特征来自与推理一致的切块
+    if tile_scheme == "size":
+        # 固定尺寸切块建库：逐图滑窗切块（小图先放大到短边 ≥ T），与推理同尺度
+        from dino_exp.infer import _preprocess_pil
+
+        model = model.to(device)
+        model.train()
+        margin = 2 * cfg.tile_target_patch_px
+        for p in train_imgs:
+            with _Img.open(p) as im:
+                im = im.convert("RGB")
+                work = upscale_small(im, tile_size, margin)
+                tiles, _pad = split_fixed(work, tile_size, cfg.tile_overlap, margin=margin)
+            batch = torch.cat([_preprocess_pil(t, cfg.image_size) for t, _ in tiles]).to(device)
+            with torch.no_grad():
+                model.model(batch)  # training 模式自动累积 embedding_store
+        model.model.fit_coreset()
+        log(f"coreset 完成，记忆库 {model.model.memory_bank.shape[0]} 条")
+        engine = None
+    elif tile_scheme == "grid":
+        # 比例网格建库（旧方案，向后兼容）：训练/推理同尺度
         from dino_exp.infer import _preprocess_pil
         from dino_exp.tiles import clamp_grid
 
@@ -198,7 +247,7 @@ def train_model(category: str, cfg: Config, log=None) -> dict:
     log(f"阈值={threshold:.4f}，注入完成")
     # 全量验证（FR-3.4）：degraded 时跳过聚合指标
     log("全量验证...")
-    if tile_grid != (1, 1):
+    if tile_scheme != "off":
         # 切块模型：用 in-memory score_one 逐图打分（engine.test 不懂切块）
         from dino_exp.validate import aggregate_metrics
 

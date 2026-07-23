@@ -66,26 +66,17 @@ def retrain(category: str, cfg: Config) -> dict:
     model = model.to(device).eval()
 
     def _feedback_feats(img_path, k: int | None = None):
-        """按模型版本配置（是否切块）提取反馈特征：OK 返回全部 patch 特征；
-        NG 返回 top-k 高分 patch 特征。与建库尺度一致。"""
+        """按模型版本配置（tile_scheme 分流：size/grid/不切）提取反馈特征：
+        OK 返回全部 patch 特征；NG 返回 top-k 高分 patch 特征。与建库尺度一致。"""
         from PIL import Image as _Img
 
-        from dino_exp.tiles import clamp_grid, should_tile, split_image
+        from dino_exp.infer import _preprocess_pil, tile_images_for_model
 
-        grid = getattr(model, "train_tile_grid", (1, 1))
-        overlap = getattr(model, "train_tile_overlap", 0.1)
         input_size = getattr(model, "train_image_size", cfg.image_size)
         with _Img.open(img_path) as im:
-            im = im.convert("RGB")
-            grid = clamp_grid(grid, im.size[0], im.size[1], input_size)
-            if should_tile(im.size[0], im.size[1], input_size, grid):
-                parts = [t for t, _ in split_image(im, grid, overlap)]
-            else:
-                parts = [im]
+            parts = tile_images_for_model(model, im.convert("RGB"), cfg)
         embs, scores = [], []
         for part in parts:
-            from dino_exp.infer import _preprocess_pil
-
             tensor = _preprocess_pil(part, input_size).to(device)  # part 是 PIL 图片对象
             emb = extract_embeddings(model.model, tensor)
             if k is not None:

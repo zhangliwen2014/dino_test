@@ -115,3 +115,117 @@ def clamp_grid(grid: tuple[int, int], img_w: int, img_h: int, image_size: int) -
     nx = max(1, min(grid[0], img_w // min_tile or 1))
     ny = max(1, min(grid[1], img_h // min_tile or 1))
     return (nx, ny)
+
+
+# ---------- 固定尺寸切块（tile_scheme="size"，设计文档 2026-07-23-fixed-size-tiling） ----------
+# 与上方比例切块（grid）并存：grid 仅为旧版本兼容保留，新训练（tile_mode=auto）走固定 T 方案。
+
+
+def compute_tile_size(target_patch_px: int, image_size: int, patch_size: int) -> int:
+    """T = P × (image_size / patch_size)：原图 T×T 块缩到 image_size 后每 patch 覆盖 P 原图像素。
+
+    T 是类别级常数（patch14@224 → 16 patch/边 → T=20×16=320；patch16@224 → 14 → T=280）。
+    """
+    return target_patch_px * (image_size // patch_size)
+
+
+def upscale_small(im: Image.Image, tile_size: int, margin: int) -> Image.Image:
+    """小图（两轴都 < T+margin）各向同性放大到短边 ≥ T（与记忆库尺度对齐）。
+
+    长条图（任一轴 ≥ T+margin，另一轴走 pad）与短边已 ≥ T 的图原样返回。
+    """
+    w, h = im.size
+    if w >= tile_size + margin or h >= tile_size + margin:
+        return im
+    short = min(w, h)
+    if short >= tile_size:
+        return im
+    scale = tile_size / short
+    return im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.BILINEAR)
+
+
+def _reflect_pad(im: Image.Image, pad_w: int, pad_h: int) -> Image.Image:
+    """右/下 reflect（symmetric）补边：长条图短边 < T 时补到 T，保持块为正方形。"""
+    import numpy as np
+
+    arr = np.array(im)
+    arr = np.pad(arr, ((0, pad_h), (0, pad_w)) + ((0, 0),) * (arr.ndim - 2), mode="symmetric")
+    return Image.fromarray(arr)
+
+
+def _axis_segments(axis_len: int, tile_size: int, stride: int, margin: int):
+    """单轴切分。返回 (segments, pad)：segments=[(start, length), ...]。
+
+    轴长 ≥ T+margin → 滑窗（0, stride, …, 末块贴边锚定 axis_len-T，块长恒为 T）；
+    T ≤ 轴长 < T+margin → 单段整轴；轴长 < T → 单段 T 并需 pad（pad = T - axis_len）。
+    """
+    if axis_len >= tile_size + margin:
+        last = axis_len - tile_size
+        starts = list(range(0, last, stride))
+        if not starts or starts[-1] != last:
+            starts.append(last)  # 末块贴边锚定
+        return [(s, tile_size) for s in starts], 0
+    if axis_len >= tile_size:
+        return [(0, axis_len)], 0
+    return [(0, tile_size)], tile_size - axis_len
+
+
+def split_fixed(im: Image.Image, tile_size: int, overlap: float = 0.15, margin: int | None = None):
+    """固定尺寸 T×T 滑窗切块（tile_scheme="size"）。返回 (tiles, pad)。
+
+    tiles = [(tile_image, (x0, y0, x1, y1)), ...]（先行后列，坐标在 pad 后的图上）；
+    pad = (pad_w, pad_h) 为短边 < T 时的 reflect 补边量（stitch_fixed 拼完据此裁回）。
+    按轴独立判定：轴长 ≥ T+margin 才在该轴滑窗；margin 缺省 = stride（调用方按
+    设计文档传 2P，P=tile_target_patch_px）。两轴都不满足滑窗条件时返回单块
+    （整图，可能经 pad）——由调用方决定后续处理（score_one/训练对小图先
+    upscale_small 再调本函数）。
+    """
+    stride = max(1, round(tile_size * (1 - overlap)))
+    if margin is None:
+        margin = stride
+    w, h = im.size
+    x_seg, pad_w = _axis_segments(w, tile_size, stride, margin)
+    y_seg, pad_h = _axis_segments(h, tile_size, stride, margin)
+    if pad_w or pad_h:
+        im = _reflect_pad(im, pad_w, pad_h)
+    tiles = []
+    for y0, lh in y_seg:
+        for x0, lw in x_seg:
+            tiles.append((im.crop((x0, y0, x0 + lw, y0 + lh)), (x0, y0, x0 + lw, y0 + lh)))
+    return tiles, (pad_w, pad_h)
+
+
+def stitch_fixed(tile_amaps, boxes, out_size: tuple[int, int]):
+    """固定尺寸切块的 anomaly map 拼接：重叠区按相邻块中心连线的中垂线归属。
+
+    每轴归属线 = 相邻起点块中心的中点（非比例切块的 w/nx 网格线），每个像素
+    恰好归属一个块。boxes 为 split_fixed 返回的块框（pad 后图坐标，先行后列）；
+    先按 pad 后尺寸拼，再裁回 out_size（原图/放大图的未 pad 尺寸 (W, H)）。
+    返回 torch.Tensor (1, 1, H, W)。
+    """
+    import torch
+    import torch.nn.functional as F
+
+    def _axis_bounds(starts: list[int], lens: dict[int, int], axis_end: int) -> list[int]:
+        centers = [s + lens[s] / 2 for s in starts]
+        bounds = [0] + [int((centers[i - 1] + centers[i]) / 2) for i in range(1, len(starts))]
+        return bounds + [axis_end]
+
+    w, h = out_size
+    x0s = sorted({b[0] for b in boxes})
+    y0s = sorted({b[1] for b in boxes})
+    xlen = {x0: next(b[2] - b[0] for b in boxes if b[0] == x0) for x0 in x0s}
+    ylen = {y0: next(b[3] - b[1] for b in boxes if b[1] == y0) for y0 in y0s}
+    w_pad = max(b[2] for b in boxes)
+    h_pad = max(b[3] for b in boxes)
+    xb = _axis_bounds(x0s, xlen, w_pad)
+    yb = _axis_bounds(y0s, ylen, h_pad)
+    merged = torch.zeros(h_pad, w_pad)
+    for amap, (x0, y0, x1, y1) in zip(tile_amaps, boxes):
+        ix, iy = x0s.index(x0), y0s.index(y0)
+        cx0, cx1, cy0, cy1 = xb[ix], xb[ix + 1], yb[iy], yb[iy + 1]
+        resized = F.interpolate(amap.squeeze().unsqueeze(0).unsqueeze(0).float(),
+                                size=(y1 - y0, x1 - x0), mode="bilinear",
+                                align_corners=False).squeeze()
+        merged[cy0:cy1, cx0:cx1] = resized[cy0 - y0:cy1 - y0, cx0 - x0:cx1 - x0]
+    return merged[:h, :w].unsqueeze(0).unsqueeze(0)

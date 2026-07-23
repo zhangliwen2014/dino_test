@@ -68,9 +68,9 @@ class Config:
     eval_batch_size: int = 16
     num_workers: int = 0
     device: str = "auto"  # auto（自动选最强）/ cpu / cuda
-    tile_mode: str = "off"  # off（不切）/ auto（自动推荐）/ 2x2 / 3x3 / 4x4 / 6x6 / 8x8
+    tile_mode: str = "off"  # off（不切）/ auto（固定尺寸 T 切块）/ 2x2 / 3x3 / 4x4 / 6x6 / 8x8（旧比例网格，兼容）
     tile_overlap: float = 0.1  # 切块重叠率（避免缺陷被切块边缘切断）
-    tile_target_patch_px: int = 20  # auto 模式的目标 patch 覆盖（原图像素，越小网格越密）
+    tile_target_patch_px: int = 20  # 固定尺寸切块目标 patch 覆盖（原图像素，T=P×image_size/patch_size）
     data_root: Path = Path("data")
     models_root: Path = Path("models")
     feedback_root: Path = Path("feedback")
